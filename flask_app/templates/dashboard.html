@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block page_title %}Overview Dashboard{% endblock %}
+{% block content %}
+<div class="grid-4">
+  <div class="card">
+    <div class="kpi-label">Latest Daily Consumption</div>
+    <div class="kpi-value mono">{{ ws.summary.today_liters }} L</div>
+    <div class="kpi-label" style="margin-top:6px">Target: <span class="mono">{{ ws.conservation.goal.daily_target_liters }} L</span></div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Average Daily Usage</div>
+    <div class="kpi-value mono">{{ ws.summary.average_daily_liters }} L</div>
+    <div class="kpi-label" style="margin-top:6px">Weekday {{ ws.summary.weekday_average_liters }} L · Weekend {{ ws.summary.weekend_average_liters }} L</div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Next-Day Predicted Usage</div>
+    <div class="kpi-value mono" style="color:#0284c7">{{ ws.forecast.next_day_predicted_liters }} L</div>
+    <div class="kpi-label" style="margin-top:6px">{{ ws.forecast.method_name }}</div>
+  </div>
+  <div class="card">
+    <div class="kpi-label">Leak Risk & Goal Progress</div>
+    <div class="kpi-value" style="font-size:18px">{{ ws.leak_analysis.overall_risk_level }}</div>
+    <div class="kpi-label" style="margin-top:6px">{{ ws.conservation.target_adherence_percent }}% days on target</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin-bottom:12px">Actual vs Predicted Consumption (Last 30 Days)</h2>
+  <div class="chart-box"><canvas id="dashPredChart"></canvas></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2 style="font-size:16px;margin-bottom:12px">Weekly Consumption</h2>
+    <div class="chart-box"><canvas id="dashWeeklyChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h2 style="font-size:16px;margin-bottom:12px">Monthly Consumption</h2>
+    <div class="chart-box"><canvas id="dashMonthlyChart"></canvas></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const hist = {{ ws.forecast.historical[-30:] | tojson }};
+  renderLineChart("dashPredChart", hist.map(h => h.date.slice(5)), [
+    { label: "Actual (L)", data: hist.map(h => h.actual_liters), borderColor: "#0284c7", borderWidth: 2, tension: 0.2 },
+    { label: "Predicted (L)", data: hist.map(h => h.predicted_liters), borderColor: "#0f766e", borderDash: [5,4], borderWidth: 2, pointRadius: 0 }
+  ]);
+  const wk = {{ ws.weekly[-8:] | tojson }};
+  renderBarChart("dashWeeklyChart", wk.map(w => w.period), [{ label: "Weekly (L)", data: wk.map(w => w.total_liters), backgroundColor: "#0f766e" }]);
+  const mo = {{ ws.monthly | tojson }};
+  renderBarChart("dashMonthlyChart", mo.map(m => m.label), [{ label: "Monthly (L)", data: mo.map(m => m.total_liters), backgroundColor: "#0284c7" }]);
+</script>
+{% endblock %}

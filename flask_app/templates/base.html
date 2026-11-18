@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AquaLedger — Smart Water Management System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">AquaLedger</div>
+      <nav class="nav">
+        <a href="{{ url_for('web.dashboard') }}" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
+        <a href="{{ url_for('web.monitoring') }}" class="{{ 'active' if active_page == 'monitoring' else '' }}">Usage Monitoring</a>
+        <a href="{{ url_for('web.prediction') }}" class="{{ 'active' if active_page == 'prediction' else '' }}">Prediction</a>
+        <a href="{{ url_for('web.leaks') }}" class="{{ 'active' if active_page == 'leaks' else '' }}">
+          <span>Leak Detection</span>
+          {% if ws.leak_analysis.active_alerts_count > 0 %}
+            <span class="mono" style="color:#dc2626">{{ ws.leak_analysis.active_alerts_count }}</span>
+          {% endif %}
+        </a>
+        <a href="{{ url_for('web.conservation') }}" class="{{ 'active' if active_page == 'conservation' else '' }}">Conservation</a>
+        <a href="{{ url_for('web.reports') }}" class="{{ 'active' if active_page == 'reports' else '' }}">Reports</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div style="color:#64748b">Active Household</div>
+        <div style="font-weight:600;margin:2px 0">{{ ws.user.household_name }}</div>
+        <div class="mono" style="color:#64748b;margin-bottom:8px">{{ ws.user.name }} · {{ ws.meter_id }}</div>
+        <form method="post" action="{{ url_for('web.switch_user') }}">
+          <select name="user_id" onchange="this.form.submit()">
+            {% for u in users %}
+              <option value="{{ u.id }}" {{ 'selected' if u.id == ws.user.id else '' }}>{{ u.household_name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <div style="margin-top:8px"><a href="{{ url_for('web.login') }}" style="color:#0f766e">Sign in / Register</a></div>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div>
+          <h1 style="font-size:18px">{% block page_title %}Overview{% endblock %}</h1>
+        </div>
+        <a href="{{ url_for('web.monitoring') }}" class="btn btn-primary">+ Log Reading</a>
+      </header>
+      <main class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in messages %}
+            <div class="flash flash-{{ 'error' if cat == 'error' else 'success' }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

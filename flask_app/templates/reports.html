@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block page_title %}Reports & Export{% endblock %}
+{% block content %}
+<div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% for key, label in [('daily','Daily'),('weekly','Weekly'),('monthly','Monthly'),('forecast','Predicted vs Actual'),('leaks','Leak History'),('conservation','Conservation')] %}
+      <a href="{{ url_for('web.reports', tab=key) }}" class="btn {{ 'btn-primary' if tab == key else '' }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('api.export_csv', report_type=tab) }}" class="btn btn-primary">Export CSV</a>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  {% if tab == 'weekly' %}
+    <table><thead><tr><th>Week</th><th class="text-right">Days</th><th class="text-right">Total (L)</th><th class="text-right">Avg (L/d)</th></tr></thead><tbody>
+      {% for w in ws.weekly|reverse %}<tr><td class="mono">{{ w.period }}</td><td class="text-right mono">{{ w.reading_count }}</td><td class="text-right mono">{{ w.total_liters }}</td><td class="text-right mono">{{ w.average_daily_liters }}</td></tr>{% endfor %}
+    </tbody></table>
+  {% elif tab == 'monthly' %}
+    <table><thead><tr><th>Month</th><th class="text-right">Days</th><th class="text-right">Total (L)</th><th class="text-right">Avg (L/d)</th></tr></thead><tbody>
+      {% for m in ws.monthly|reverse %}<tr><td>{{ m.label }}</td><td class="text-right mono">{{ m.reading_count }}</td><td class="text-right mono">{{ m.total_liters }}</td><td class="text-right mono">{{ m.average_daily_liters }}</td></tr>{% endfor %}
+    </tbody></table>
+  {% elif tab == 'forecast' %}
+    <table><thead><tr><th>Date</th><th class="text-right">Actual (L)</th><th class="text-right">Predicted (L)</th><th class="text-right">Dev (%)</th></tr></thead><tbody>
+      {% for h in ws.forecast.historical|reverse %}<tr><td class="mono">{{ h.date }}</td><td class="text-right mono">{{ h.actual_liters }}</td><td class="text-right mono">{{ h.predicted_liters }}</td><td class="text-right mono">{{ h.deviation_percent }}%</td></tr>{% endfor %}
+    </tbody></table>
+  {% elif tab == 'leaks' %}
+    <table><thead><tr><th>Date</th><th>Risk</th><th>Rule</th><th class="text-right">Actual / Expected</th><th>Status</th></tr></thead><tbody>
+      {% for a in ws.alerts %}<tr><td class="mono">{{ a.date }}</td><td>{{ a.risk_level }}</td><td>{{ a.rule_triggered }}</td><td class="text-right mono">{{ a.actual_liters }} / {{ a.expected_liters }} L</td><td>{{ a.status }}</td></tr>{% endfor %}
+    </tbody></table>
+  {% else %}
+    <table><thead><tr><th>Date</th><th class="text-right">Volume (L)</th><th class="text-right">Night Flow (L/h)</th><th>Source</th><th>Notes</th></tr></thead><tbody>
+      {% for r in ws.readings|reverse %}<tr><td class="mono">{{ r.date }}</td><td class="text-right mono">{{ r.volume_liters }}</td><td class="text-right mono">{{ r.night_flow_lph }}</td><td>{{ r.source }}</td><td>{{ r.notes }}</td></tr>{% endfor %}
+    </tbody></table>
+  {% endif %}
+</div>
+{% endblock %}
