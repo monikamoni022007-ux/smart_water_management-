@@ -15,15 +15,15 @@
       <div class="brand">AquaLedger</div>
       <nav class="nav">
         <a href="{{ url_for('web.dashboard') }}" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
-        <a href="{{ url_for('web.monitoring') }}" class="{{ 'active' if active_page == 'monitoring' else '' }}">Usage Monitoring</a>
-        <a href="{{ url_for('web.prediction') }}" class="{{ 'active' if active_page == 'prediction' else '' }}">Prediction</a>
+        <a href="{{ url_for('web.monitoring') }}" class="{{ 'active' if active_page == 'monitoring' else '' }}">Water Usage</a>
+        <a href="{{ url_for('web.prediction') }}" class="{{ 'active' if active_page == 'prediction' else '' }}">Usage Prediction</a>
         <a href="{{ url_for('web.leaks') }}" class="{{ 'active' if active_page == 'leaks' else '' }}">
           <span>Leak Detection</span>
           {% if ws.leak_analysis.active_alerts_count > 0 %}
             <span class="mono" style="color:#dc2626">{{ ws.leak_analysis.active_alerts_count }}</span>
           {% endif %}
         </a>
-        <a href="{{ url_for('web.conservation') }}" class="{{ 'active' if active_page == 'conservation' else '' }}">Conservation</a>
+        <a href="{{ url_for('web.conservation') }}" class="{{ 'active' if active_page == 'conservation' else '' }}">Water Conservation</a>
         <a href="{{ url_for('web.reports') }}" class="{{ 'active' if active_page == 'reports' else '' }}">Reports</a>
       </nav>
       <div class="sidebar-footer">

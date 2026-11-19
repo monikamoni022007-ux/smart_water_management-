@@ -82,23 +82,30 @@ export class ConservationManager {
     const beforeReadings = sorted.filter((r) => r.date < goal.actionStartDate);
     const afterReadings = sorted.filter((r) => r.date >= goal.actionStartDate);
 
-    const beforeAvgLiters =
-      beforeReadings.length > 0
-        ? Number((beforeReadings.reduce((s, r) => s + r.volumeLiters, 0) / beforeReadings.length).toFixed(1))
-        : goal.baselineDailyLiters;
+    const hasReadings = sorted.length > 0;
+    const beforeAvgLiters = !hasReadings
+      ? 0
+      : beforeReadings.length > 0
+      ? Number((beforeReadings.reduce((s, r) => s + r.volumeLiters, 0) / beforeReadings.length).toFixed(1))
+      : goal.baselineDailyLiters;
 
-    const afterAvgLiters =
-      afterReadings.length > 0
-        ? Number((afterReadings.reduce((s, r) => s + r.volumeLiters, 0) / afterReadings.length).toFixed(1))
-        : currentAvgDailyLiters;
+    const afterAvgLiters = !hasReadings
+      ? 0
+      : afterReadings.length > 0
+      ? Number((afterReadings.reduce((s, r) => s + r.volumeLiters, 0) / afterReadings.length).toFixed(1))
+      : currentAvgDailyLiters;
 
-    const estimatedDailySavingsLiters = Number((beforeAvgLiters - afterAvgLiters).toFixed(1));
-    const activePeriodDays = Math.max(afterReadings.length, recent30.length);
-    const estimatedTotalSavedLiters = Number(
-      Math.max(0, estimatedDailySavingsLiters * activePeriodDays).toFixed(1)
-    );
+    const estimatedDailySavingsLiters = hasReadings
+      ? Number((beforeAvgLiters - afterAvgLiters).toFixed(1))
+      : 0;
+    const activePeriodDays = hasReadings ? Math.max(afterReadings.length, recent30.length) : 0;
+    const estimatedTotalSavedLiters = hasReadings
+      ? Number(Math.max(0, estimatedDailySavingsLiters * activePeriodDays).toFixed(1))
+      : 0;
     const savingsPercent =
-      beforeAvgLiters > 0 ? Number(((estimatedDailySavingsLiters / beforeAvgLiters) * 100).toFixed(1)) : 0;
+      hasReadings && beforeAvgLiters > 0
+        ? Number(((estimatedDailySavingsLiters / beforeAvgLiters) * 100).toFixed(1))
+        : 0;
 
     let statusLabel: 'On Track' | 'Needs Attention' | 'Over Limit' = 'On Track';
     if (monthlyLimitUtilizationPercent > 100 || currentAvgDailyLiters > goal.dailyTargetLiters * 1.15) {

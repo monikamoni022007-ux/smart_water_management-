@@ -96,6 +96,18 @@ class TestWaterManagementOOAD(unittest.TestCase):
 
             ws = db.get_workspace_payload(alex.id)
             self.assertGreater(ws["conservation"]["estimated_daily_savings_liters"], 0)
+
+            empty_cons = ConservationManager().evaluate_progress([], ws["conservation"]["goal"])
+            self.assertEqual(empty_cons["estimated_daily_savings_liters"], 0.0)
+            self.assertEqual(empty_cons["before_avg_liters"], 0.0)
+
+            db.add_reading(priya.id, "2026-11-20", 520.0, 17.5, "Restart check", "manual")
+            db.update_user_settings(priya.id, {"forecast_strategy": "moving_average", "forecast_horizon_days": 7})
+            reopened = WaterDatabase(db_path)
+            ws_reopened = reopened.get_workspace_payload(priya.id)
+            self.assertEqual(len(ws_reopened["readings"]), 16)
+            self.assertEqual(ws_reopened["settings"]["forecast_strategy"], "moving_average")
+            self.assertTrue(any(a["date"] == "2026-11-20" for a in ws_reopened["alerts"]))
         finally:
             if os.path.exists(db_path):
                 os.unlink(db_path)

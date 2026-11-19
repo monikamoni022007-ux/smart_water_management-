@@ -1,56 +1,55 @@
 {% extends "base.html" %}
-{% block page_title %}Overview Dashboard{% endblock %}
+{% block page_title %}Home Water Overview{% endblock %}
 {% block content %}
 <div class="grid-4">
   <div class="card">
-    <div class="kpi-label">Latest Daily Consumption</div>
+    <div class="kpi-label">Today's Water Usage</div>
     <div class="kpi-value mono">{{ ws.summary.today_liters }} L</div>
-    <div class="kpi-label" style="margin-top:6px">Target: <span class="mono">{{ ws.conservation.goal.daily_target_liters }} L</span></div>
+    <div class="kpi-label" style="margin-top:6px">Daily goal: <span class="mono">{{ ws.conservation.goal.daily_target_liters }} L</span></div>
   </div>
   <div class="card">
-    <div class="kpi-label">Average Daily Usage</div>
-    <div class="kpi-value mono">{{ ws.summary.average_daily_liters }} L</div>
-    <div class="kpi-label" style="margin-top:6px">Weekday {{ ws.summary.weekday_average_liters }} L · Weekend {{ ws.summary.weekend_average_liters }} L</div>
+    <div class="kpi-label">Monthly Water Usage</div>
+    <div class="kpi-value mono">{{ ws.conservation.recent_thirty_day_total_liters | round | int }} L</div>
+    <div class="kpi-label" style="margin-top:6px">Limit: <span class="mono">{{ ws.conservation.goal.monthly_limit_liters | int }} L</span> (30 days)</div>
   </div>
   <div class="card">
-    <div class="kpi-label">Next-Day Predicted Usage</div>
-    <div class="kpi-value mono" style="color:#0284c7">{{ ws.forecast.next_day_predicted_liters }} L</div>
-    <div class="kpi-label" style="margin-top:6px">{{ ws.forecast.method_name }}</div>
+    <div class="kpi-label">Current Water Status</div>
+    <div class="kpi-value" style="font-size:18px">{{ 'All normal' if ws.leak_analysis.active_alerts_count == 0 else 'Possible leak notice' }}</div>
+    <div class="kpi-label" style="margin-top:6px">{{ ws.leak_analysis.active_alerts_count }} active alert(s)</div>
   </div>
   <div class="card">
-    <div class="kpi-label">Leak Risk & Goal Progress</div>
-    <div class="kpi-value" style="font-size:18px">{{ ws.leak_analysis.overall_risk_level }}</div>
-    <div class="kpi-label" style="margin-top:6px">{{ ws.conservation.target_adherence_percent }}% days on target</div>
+    <div class="kpi-label">Conservation Goal Progress</div>
+    <div class="kpi-value mono" style="color:#15803d">{{ ws.conservation.target_adherence_percent }}%</div>
+    <div class="kpi-label" style="margin-top:6px">{{ ws.conservation.days_within_daily_target }} of {{ ws.conservation.total_evaluated_days }} days on goal</div>
   </div>
 </div>
 
 <div class="card">
-  <h2 style="font-size:16px;margin-bottom:12px">Actual vs Predicted Consumption (Last 30 Days)</h2>
-  <div class="chart-box"><canvas id="dashPredChart"></canvas></div>
+  <h2 style="font-size:16px;margin-bottom:12px">Water Usage (Last 30 Days)</h2>
+  <div class="chart-box"><canvas id="dashUsageChart"></canvas></div>
 </div>
 
-<div class="grid-2">
-  <div class="card">
-    <h2 style="font-size:16px;margin-bottom:12px">Weekly Consumption</h2>
-    <div class="chart-box"><canvas id="dashWeeklyChart"></canvas></div>
-  </div>
-  <div class="card">
-    <h2 style="font-size:16px;margin-bottom:12px">Monthly Consumption</h2>
-    <div class="chart-box"><canvas id="dashMonthlyChart"></canvas></div>
-  </div>
+{% set active_alerts = ws.alerts | selectattr('status', 'equalto', 'Active') | list %}
+{% if active_alerts | length > 0 %}
+<div class="card">
+  <h2 style="font-size:16px;margin-bottom:12px">Important Alerts ({{ active_alerts | length }})</h2>
+  {% for a in active_alerts[:3] %}
+    <div style="padding:10px 0;border-bottom:1px solid #f1f5f9">
+      <div style="font-size:13px;font-weight:600">{{ a.date }} · Used {{ a.actual_liters }} L (usual ~{{ a.expected_liters }} L)</div>
+      <div style="font-size:12px;color:#475569;margin-top:4px">What to do: {{ a.recommended_action }}</div>
+    </div>
+  {% endfor %}
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
   const hist = {{ ws.forecast.historical[-30:] | tojson }};
-  renderLineChart("dashPredChart", hist.map(h => h.date.slice(5)), [
-    { label: "Actual (L)", data: hist.map(h => h.actual_liters), borderColor: "#0284c7", borderWidth: 2, tension: 0.2 },
-    { label: "Predicted (L)", data: hist.map(h => h.predicted_liters), borderColor: "#0f766e", borderDash: [5,4], borderWidth: 2, pointRadius: 0 }
+  const goal = {{ ws.conservation.goal.daily_target_liters }};
+  renderLineChart("dashUsageChart", hist.map(h => h.date.slice(5)), [
+    { label: "Water Used (L)", data: hist.map(h => h.actual_liters), borderColor: "#0284c7", borderWidth: 2, tension: 0.2 },
+    { label: "Daily Goal (L)", data: hist.map(() => goal), borderColor: "#0f766e", borderDash: [5,4], borderWidth: 1.5, pointRadius: 0 }
   ]);
-  const wk = {{ ws.weekly[-8:] | tojson }};
-  renderBarChart("dashWeeklyChart", wk.map(w => w.period), [{ label: "Weekly (L)", data: wk.map(w => w.total_liters), backgroundColor: "#0f766e" }]);
-  const mo = {{ ws.monthly | tojson }};
-  renderBarChart("dashMonthlyChart", mo.map(m => m.label), [{ label: "Monthly (L)", data: mo.map(m => m.total_liters), backgroundColor: "#0284c7" }]);
 </script>
 {% endblock %}

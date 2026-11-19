@@ -1,12 +1,12 @@
 import {
-  Activity,
   AlertTriangle,
+  BarChart3,
   Droplets,
-  FileSpreadsheet,
-  LayoutDashboard,
+  FileText,
+  Home,
   Leaf,
   TrendingUp,
-  UserCheck,
+  User,
   X,
 } from 'lucide-react';
 import { UserAccount } from '../types/api';
@@ -30,13 +30,13 @@ interface SidebarProps {
   onCloseMobile: () => void;
 }
 
-const NAV_ITEMS: Array<{ id: PageId; label: string; icon: typeof LayoutDashboard }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'monitoring', label: 'Usage Monitoring', icon: Activity },
-  { id: 'prediction', label: 'Prediction', icon: TrendingUp },
+const NAV_ITEMS: Array<{ id: PageId; label: string; icon: typeof Home }> = [
+  { id: 'dashboard', label: 'Dashboard', icon: Home },
+  { id: 'monitoring', label: 'Water Usage', icon: BarChart3 },
+  { id: 'prediction', label: 'Usage Prediction', icon: TrendingUp },
   { id: 'leaks', label: 'Leak Detection', icon: AlertTriangle },
-  { id: 'conservation', label: 'Conservation', icon: Leaf },
-  { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
+  { id: 'conservation', label: 'Water Conservation', icon: Leaf },
+  { id: 'reports', label: 'Reports', icon: FileText },
 ];
 
 export function Sidebar({
@@ -50,13 +50,13 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const navContent = (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-64">
-      <div className="h-16 px-5 flex items-center justify-between border-b border-slate-200 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-md bg-[#0F766E] flex items-center justify-center text-white shrink-0">
+    <div className="flex flex-col h-full bg-[#FBFBFC] border-r border-slate-200/90 w-[248px]">
+      <div className="h-16 px-5 flex items-center justify-between border-b border-slate-200/80 shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-md bg-[#0F766E] flex items-center justify-center text-white shadow-xs shrink-0">
             <Droplets className="w-4 h-4" aria-hidden="true" />
           </div>
-          <span className="font-display font-bold text-base tracking-tight text-[#0F172A] whitespace-nowrap">
+          <span className="font-display font-semibold text-[15px] tracking-tight text-[#0F172A] whitespace-nowrap">
             AquaLedger
           </span>
         </div>
@@ -64,7 +64,7 @@ export function Sidebar({
           type="button"
           onClick={onCloseMobile}
           aria-label="Close navigation menu"
-          className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 rounded-md"
+          className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]/30"
         >
           <X className="w-5 h-5" />
         </button>
@@ -83,21 +83,23 @@ export function Sidebar({
                 onCloseMobile();
               }}
               aria-current={isActive ? 'page' : undefined}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+              className={`w-full flex items-center justify-between px-3 py-2 text-[13px] rounded-md whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]/30 ${
                 isActive
-                  ? 'bg-[#F0FDFA] text-[#0F766E]'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-[#0F172A]'
+                  ? 'bg-white text-[#0F172A] font-semibold border border-slate-200/90 shadow-[0_1px_2px_rgba(15,23,42,0.05)]'
+                  : 'text-slate-600 font-medium border border-transparent hover:bg-slate-100/70 hover:text-[#0F172A]'
               }`}
             >
-              <span className="flex items-center gap-2.5">
+              <span className="flex items-center gap-2.5 min-w-0">
                 <Icon
-                  className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0F766E]' : 'text-slate-400'}`}
+                  className={`w-4 h-4 shrink-0 ${
+                    isActive ? 'text-[#0F766E]' : 'text-slate-400'
+                  }`}
                   aria-hidden="true"
                 />
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </span>
               {item.id === 'leaks' && activeAlertCount > 0 && (
-                <span className="font-mono-tabular text-xs font-semibold text-[#DC2626]">
+                <span className="font-mono-tabular text-xs font-semibold text-[#DC2626] shrink-0">
                   {activeAlertCount}
                 </span>
               )}
@@ -106,19 +108,21 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-200 shrink-0">
-        <div className="text-xs text-slate-500 mb-1">Active Household</div>
-        <div className="text-sm font-semibold text-[#0F172A] truncate">{user.householdName}</div>
-        <div className="text-xs text-slate-500 mt-0.5 truncate">
+      <div className="p-4 border-t border-slate-200/80 bg-white/70 shrink-0">
+        <div className="text-[11px] font-medium text-slate-400">Current Home</div>
+        <div className="text-sm font-semibold text-[#0F172A] truncate mt-0.5">
+          {user.householdName}
+        </div>
+        <div className="text-xs text-slate-500 truncate mt-0.5">
           {user.name} · <span className="font-mono-tabular">{meterId}</span>
         </div>
         <button
           type="button"
           onClick={onOpenAccountModal}
-          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-[#0F172A] bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors whitespace-nowrap"
+          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md shadow-2xs hover:bg-slate-50 hover:border-slate-300 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]/30"
         >
-          <UserCheck className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-          <span>Switch / Manage Account</span>
+          <User className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+          <span>Switch Home</span>
         </button>
       </div>
     </div>
@@ -130,11 +134,11 @@ export function Sidebar({
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-900/35"
+            className="fixed inset-0 bg-slate-900/35 backdrop-blur-[1px]"
             onClick={onCloseMobile}
             aria-hidden="true"
           />
-          <aside className="relative z-50 h-full">{navContent}</aside>
+          <aside className="relative z-50 h-full shadow-xl">{navContent}</aside>
         </div>
       )}
     </>

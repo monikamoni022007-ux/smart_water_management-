@@ -388,9 +388,12 @@ export class WaterDatabase {
 
   public updateUserSettings(userId: number, patch: Partial<UserSettings>): UserSettings {
     const current = this.getUserSettings(userId);
+    const definedPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined)
+    ) as Partial<UserSettings>;
     const merged: UserSettings = {
       ...current,
-      ...patch,
+      ...definedPatch,
       userId,
     };
 

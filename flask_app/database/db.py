@@ -472,6 +472,9 @@ class WaterDatabase:
         }
 
     def update_conservation_goal(self, user_id: int, goal: Dict) -> Dict:
+        valid, errs = ConservationManager.validate_goal(goal)
+        if not valid:
+            raise ValueError(" ".join(errs))
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO conservation_goals
@@ -489,8 +492,8 @@ class WaterDatabase:
                     float(goal["daily_target_liters"]),
                     float(goal["monthly_limit_liters"]),
                     float(goal["baseline_daily_liters"]),
-                    goal["action_start_date"],
-                    goal["action_label"],
+                    str(goal["action_start_date"]).strip(),
+                    str(goal["action_label"]).strip(),
                 ),
             )
         return self.get_conservation_goal(user_id)

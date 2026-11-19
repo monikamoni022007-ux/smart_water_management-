@@ -1,72 +1,88 @@
 {% extends "base.html" %}
-{% block page_title %}Usage Monitoring{% endblock %}
+{% block page_title %}Water Usage{% endblock %}
 {% block content %}
-<div class="grid-2">
-  <div class="card">
-    <h2 style="font-size:16px;margin-bottom:12px">Add Water Usage Reading</h2>
-    <form method="post" style="display:grid;gap:12px">
-      <input type="hidden" name="action" value="create" />
-      <div class="grid-2">
-        <div><label class="kpi-label">Date</label><input type="date" name="date" required /></div>
-        <div><label class="kpi-label">Volume (Liters)</label><input type="number" step="0.1" min="1" max="50000" name="volume_liters" required /></div>
-      </div>
-      <div class="grid-2">
-        <div><label class="kpi-label">Night Flow (L/h)</label><input type="number" step="0.1" min="0" max="2000" name="night_flow_lph" value="2.5" required /></div>
-        <div><label class="kpi-label">Notes</label><input type="text" name="notes" maxlength="240" /></div>
-      </div>
-      <button type="submit" class="btn btn-primary" style="justify-self:start">Save Reading</button>
-    </form>
-  </div>
+<div id="mon-status" style="display:none"></div>
 
-  <div class="card">
-    <h2 style="font-size:16px;margin-bottom:8px">Sample Simulation Dataset</h2>
-    <p style="font-size:13px;color:#475569">Load 92 days of deterministic meter data or clear demo records while preserving manual entries.</p>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <form method="post"><input type="hidden" name="action" value="load_demo" /><button type="submit" class="btn">Load Sample Data (92d)</button></form>
-      <form method="post"><input type="hidden" name="action" value="clear_demo" /><button type="submit" class="btn">Clear Demo Only</button></form>
+<div class="card">
+  <h2 id="mon-form-title" style="font-size:16px;margin-bottom:12px">Add Daily Water Reading</h2>
+  <form id="monitoring-reading-form" novalidate style="display:grid;gap:12px">
+    <div class="grid-4">
+      <div><label class="kpi-label" for="mon-date">Date</label><input id="mon-date" type="date" name="date" required /></div>
+      <div><label class="kpi-label" for="mon-volume">Water Used (Liters)</label><input id="mon-volume" type="number" step="0.1" min="1" max="50000" name="volume_liters" placeholder="e.g. 315" required /></div>
+      <div><label class="kpi-label" for="mon-night">Overnight Flow (L/h)</label><input id="mon-night" type="number" step="0.1" min="0" max="2000" name="night_flow_lph" value="2.5" required /></div>
+      <div><label class="kpi-label" for="mon-notes">Note (Optional)</label><input id="mon-notes" type="text" name="notes" maxlength="240" placeholder="Laundry, garden, etc." /></div>
     </div>
-  </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding-top:8px;border-top:1px solid #f1f5f9">
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="kpi-label">Sample data:</span>
+        <button type="button" id="mon-load-demo" class="btn">Load 92-Day Sample</button>
+        <button type="button" id="mon-clear-demo" class="btn">Clear Sample Data</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="mon-cancel-btn" class="btn" style="display:none">Cancel</button>
+        <button type="submit" id="mon-submit-btn" class="btn btn-primary">Save Reading</button>
+      </div>
+    </div>
+  </form>
 </div>
 
 <div class="card">
-  <form method="get" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
-    <div><label class="kpi-label">From</label><input type="date" name="start" value="{{ start_date }}" /></div>
-    <div><label class="kpi-label">To</label><input type="date" name="end" value="{{ end_date }}" /></div>
-    <div>
-      <label class="kpi-label">Source</label>
-      <select name="source">
-        <option value="all" {{ 'selected' if source == 'all' else '' }}>All</option>
-        <option value="manual" {{ 'selected' if source == 'manual' else '' }}>Manual</option>
-        <option value="demo" {{ 'selected' if source == 'demo' else '' }}>Demo</option>
-      </select>
+  <form id="mon-filter-form" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;justify-content:space-between">
+    <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+      <div><label class="kpi-label" for="mon-filter-start">From</label><input id="mon-filter-start" type="date" name="start" value="{{ start_date }}" /></div>
+      <div><label class="kpi-label" for="mon-filter-end">To</label><input id="mon-filter-end" type="date" name="end" value="{{ end_date }}" /></div>
+      <div>
+        <label class="kpi-label" for="mon-filter-source">Show</label>
+        <select id="mon-filter-source" name="source">
+          <option value="all" {{ 'selected' if source == 'all' else '' }}>All</option>
+          <option value="manual" {{ 'selected' if source == 'manual' else '' }}>Added by you</option>
+          <option value="demo" {{ 'selected' if source == 'demo' else '' }}>Sample data</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Filter</button>
     </div>
-    <button type="submit" class="btn btn-primary">Filter</button>
+    <span id="mon-count" class="kpi-label mono">{{ filtered_readings | length }} reading(s)</span>
   </form>
+</div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin-bottom:12px">Daily Water Usage Trend</h2>
+  <div class="chart-box"><canvas id="monUsageChart"></canvas></div>
 </div>
 
 <div class="card" style="padding:0;overflow:hidden">
   <table>
     <thead>
-      <tr><th>Date</th><th class="text-right">Volume (L)</th><th class="text-right">Night Flow (L/h)</th><th>Source</th><th>Notes</th><th class="text-right">Action</th></tr>
+      <tr><th>Date</th><th class="text-right">Water Used</th><th class="text-right">Overnight Flow</th><th>Entry Type</th><th>Note</th><th class="text-right">Actions</th></tr>
     </thead>
-    <tbody>
+    <tbody id="mon-readings-body">
+      {% if filtered_readings | length == 0 %}
+      <tr><td colspan="6" style="text-align:center;color:#64748b;padding:24px">No water readings found.</td></tr>
+      {% else %}
       {% for r in filtered_readings %}
       <tr>
         <td class="mono">{{ r.date }}</td>
         <td class="text-right mono">{{ r.volume_liters }} L</td>
         <td class="text-right mono">{{ r.night_flow_lph }} L/h</td>
-        <td>{{ 'Manual Entry' if r.source == 'manual' else 'Demo Dataset' }}</td>
+        <td>{{ 'Added by you' if r.source == 'manual' else 'Sample data' }}</td>
         <td>{{ r.notes or '—' }}</td>
-        <td class="text-right">
-          <form method="post" style="display:inline">
-            <input type="hidden" name="action" value="delete" />
-            <input type="hidden" name="reading_id" value="{{ r.id }}" />
-            <button type="submit" class="btn" style="padding:4px 8px;color:#dc2626">Delete</button>
-          </form>
+        <td class="text-right" style="white-space:nowrap">
+          <button type="button" class="btn mon-edit-btn" data-id="{{ r.id }}" data-date="{{ r.date }}" data-vol="{{ r.volume_liters }}" data-night="{{ r.night_flow_lph }}" data-notes="{{ r.notes }}" style="padding:4px 8px">Edit</button>
+          <button type="button" class="btn mon-del-btn" data-id="{{ r.id }}" style="padding:4px 8px;color:#dc2626">Delete</button>
         </td>
       </tr>
       {% endfor %}
+      {% endif %}
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const initialChron = {{ (filtered_readings | reverse | list) | tojson }};
+  renderLineChart("monUsageChart", initialChron.map(r => r.date.slice(5)), [
+    { label: "Daily Water Used (L)", data: initialChron.map(r => r.volume_liters), borderColor: "#0284c7", borderWidth: 2, tension: 0.2 }
+  ]);
+</script>
 {% endblock %}

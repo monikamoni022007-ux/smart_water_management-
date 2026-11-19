@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Menu, Plus } from 'lucide-react';
 import { AccountModal } from './components/AccountModal';
 import { PageId, Sidebar } from './components/Sidebar';
@@ -21,28 +21,28 @@ import { api } from './utils/apiClient';
 
 const PAGE_TITLES: Record<PageId, { title: string; subtitle: string }> = {
   dashboard: {
-    title: 'Overview Dashboard',
-    subtitle: 'Daily consumption, forecast accuracy, conservation goals, and leak risk',
+    title: 'Dashboard',
+    subtitle: 'A clear summary of today’s usage, monthly total, status, and goals',
   },
   monitoring: {
-    title: 'Usage Monitoring',
-    subtitle: 'Record, edit, filter, and inspect water consumption logs',
+    title: 'Water Usage',
+    subtitle: 'Add, update, or review your daily household water readings',
   },
   prediction: {
     title: 'Usage Prediction',
-    subtitle: 'Interchangeable forecasting strategies comparing actual and projected demand',
+    subtitle: 'Estimate how much water your home is likely to use next',
   },
   leaks: {
     title: 'Leak Detection',
-    subtitle: 'Possible leak analysis using multi-period surges and continuous nighttime flow',
+    subtitle: 'Check unusual water flow that could point to a possible leak',
   },
   conservation: {
-    title: 'Conservation Management',
-    subtitle: 'Targets, before-and-after impact tracking, and household recommendations',
+    title: 'Water Conservation',
+    subtitle: 'Set daily targets, see your savings, and get practical tips',
   },
   reports: {
-    title: 'Reports & Export',
-    subtitle: 'Daily, weekly, monthly, forecast, leak, and conservation summaries',
+    title: 'Reports',
+    subtitle: 'Review your usage history and download CSV summaries',
   },
 };
 
@@ -62,20 +62,30 @@ export default function App() {
   const [strategyOverride, setStrategyOverride] = useState<ForecastMethodKey | undefined>(undefined);
   const [horizonOverride, setHorizonOverride] = useState<number | undefined>(undefined);
 
+  const activeFetchController = useRef<AbortController | null>(null);
+
   const loadAll = useCallback(
     async (userId: number, strategy?: ForecastMethodKey, horizon?: number) => {
+      activeFetchController.current?.abort();
+      const controller = new AbortController();
+      activeFetchController.current = controller;
+
       try {
         setError('');
         const [usersRes, ws] = await Promise.all([
-          api.listUsers(),
-          api.getWorkspace(userId, strategy, horizon),
+          api.listUsers(controller.signal),
+          api.getWorkspace(userId, strategy, horizon, controller.signal),
         ]);
+        if (controller.signal.aborted) return;
         setUsers(usersRes.users);
         setWorkspace(ws);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to load water analytics data.');
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Unable to load water data.');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     },
     []
@@ -83,6 +93,9 @@ export default function App() {
 
   useEffect(() => {
     loadAll(activeUserId, strategyOverride, horizonOverride);
+    return () => {
+      activeFetchController.current?.abort();
+    };
   }, [activeUserId, strategyOverride, horizonOverride, loadAll]);
 
   function handleSwitchUser(user: UserAccount) {
@@ -121,28 +134,48 @@ export default function App() {
   }
 
   async function handleDeleteReading(id: number) {
-    await api.deleteReading(activeUserId, id);
-    await refreshWorkspace();
+    try {
+      await api.deleteReading(activeUserId, id);
+      await refreshWorkspace();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete reading.');
+      throw err;
+    }
   }
 
   async function handleLoadDemo() {
-    await api.loadDemoData(activeUserId, 'full90');
-    await refreshWorkspace();
+    try {
+      await api.loadDemoData(activeUserId, 'full90');
+      await refreshWorkspace();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load sample data.');
+      throw err;
+    }
   }
 
   async function handleClearDemo() {
-    await api.clearDemoData(activeUserId);
-    await refreshWorkspace();
+    try {
+      await api.clearDemoData(activeUserId);
+      await refreshWorkspace();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not clear sample data.');
+      throw err;
+    }
   }
 
   async function handleChangePredictionConfig(strategy: ForecastMethodKey, horizon: number) {
-    setStrategyOverride(strategy);
-    setHorizonOverride(horizon);
-    await api.updateSettings(activeUserId, {
-      forecastStrategy: strategy,
-      forecastHorizonDays: horizon,
-    });
-    await loadAll(activeUserId, strategy, horizon);
+    try {
+      await api.updateSettings(activeUserId, {
+        forecastStrategy: strategy,
+        forecastHorizonDays: horizon,
+      });
+      setStrategyOverride(strategy);
+      setHorizonOverride(horizon);
+      await loadAll(activeUserId, strategy, horizon);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update prediction settings.');
+      throw err;
+    }
   }
 
   async function handleUpdateThresholds(patch: Partial<UserSettings>) {
@@ -151,8 +184,13 @@ export default function App() {
   }
 
   async function handleUpdateAlertStatus(alertId: number, status: AlertStatus) {
-    await api.updateAlertStatus(activeUserId, alertId, status);
-    await refreshWorkspace();
+    try {
+      await api.updateAlertStatus(activeUserId, alertId, status);
+      await refreshWorkspace();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update alert status.');
+      throw err;
+    }
   }
 
   async function handleSaveGoal(goal: Omit<ConservationGoal, 'userId' | 'id'>) {
@@ -162,18 +200,30 @@ export default function App() {
 
   if (loading && !workspace) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6">
-        <div className="text-sm text-slate-600">Loading Smart Water Management System...</div>
+      <div className="min-h-screen bg-[#F6F8FB] flex">
+        <div className="hidden lg:block w-[248px] bg-[#FBFBFC] border-r border-slate-200/90 p-5 space-y-6">
+          <div className="h-7 w-32 bg-slate-200/70 rounded animate-pulse" />
+          <div className="space-y-2 pt-2">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="h-8 bg-slate-200/50 rounded-md animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 p-6 sm:p-8 max-w-[1200px] w-full mx-auto space-y-6">
+          <div className="h-7 w-48 bg-slate-200/70 rounded animate-pulse" />
+          <div className="surface-card h-28 animate-pulse" />
+          <div className="surface-card h-72 animate-pulse" />
+        </div>
       </div>
     );
   }
 
   if (error && !workspace) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6">
-        <div className="bg-white border border-slate-200 rounded-lg p-6 max-w-md text-center space-y-3">
+      <div className="min-h-screen bg-[#F6F8FB] flex items-center justify-center p-6">
+        <div className="surface-card p-8 max-w-md text-center space-y-3">
           <h1 className="font-display text-lg font-semibold text-[#0F172A]">Connection Error</h1>
-          <p className="text-sm text-slate-600">{error}</p>
+          <p className="text-sm text-slate-600 leading-relaxed">{error}</p>
           <button
             type="button"
             onClick={() => {
@@ -181,9 +231,9 @@ export default function App() {
               window.localStorage.setItem('aqualedger_user_id', '1');
               loadAll(1);
             }}
-            className="px-4 py-2 text-xs font-medium text-white bg-[#0F766E] rounded-md"
+            className="px-4 py-2 text-xs font-medium text-white bg-[#0F766E] rounded-md hover:bg-[#0D625B] shadow-xs"
           >
-            Reload Workspace
+            Reload
           </button>
         </div>
       </div>
@@ -197,7 +247,7 @@ export default function App() {
   const activeHorizon = horizonOverride ?? workspace.settings.forecastHorizonDays;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex">
+    <div className="min-h-screen bg-[#F6F8FB] flex">
       <Sidebar
         activePage={activePage}
         onNavigate={setActivePage}
@@ -210,18 +260,18 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between gap-4 shrink-0">
+        <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 px-4 sm:px-8 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-20">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation menu"
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-[#0F172A] rounded-md"
+              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-[#0F172A] rounded-md hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]/30"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="font-display text-lg font-semibold text-[#0F172A] truncate">
+              <h1 className="font-display text-[17px] font-semibold text-[#0F172A] tracking-tight truncate">
                 {currentMeta.title}
               </h1>
               <p className="hidden sm:block text-xs text-slate-500 truncate">{currentMeta.subtitle}</p>
@@ -232,17 +282,17 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActivePage('monitoring')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-[#0F766E] rounded-md hover:bg-[#0D625B] transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-[#0F766E] rounded-md shadow-xs hover:bg-[#0D625B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E]/35 whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Log Reading</span>
+              <span>Add Reading</span>
             </button>
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto">
+        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-7 max-w-[1200px] w-full mx-auto">
           {error && (
-            <div className="mb-4 p-3 text-xs text-[#DC2626] bg-red-50 border border-red-200 rounded-md" role="alert">
+            <div className="mb-5 p-3.5 text-xs text-[#DC2626] bg-red-50/90 border border-red-200 rounded-md" role="alert">
               {error}
             </div>
           )}

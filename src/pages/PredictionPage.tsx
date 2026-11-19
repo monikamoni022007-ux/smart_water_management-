@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { ForecastMethodKey, WorkspacePayload } from '../types/api';
 
@@ -16,6 +16,22 @@ export function PredictionPage({
   onChangePredictionConfig,
 }: PredictionPageProps) {
   const { forecast } = workspace;
+  const [updatingConfig, setUpdatingConfig] = useState(false);
+  const [configError, setConfigError] = useState('');
+
+  async function applyConfig(strategy: ForecastMethodKey, horizon: number) {
+    if (updatingConfig) return;
+    if (strategy === activeStrategy && horizon === activeHorizon) return;
+    setConfigError('');
+    setUpdatingConfig(true);
+    try {
+      await onChangePredictionConfig(strategy, horizon);
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : 'Could not update prediction settings.');
+    } finally {
+      setUpdatingConfig(false);
+    }
+  }
 
   const recentHistorical = useMemo(() => forecast.historical.slice(-45), [forecast.historical]);
 
@@ -35,67 +51,87 @@ export function PredictionPage({
       ...forecast.future.map((f) => f.predictedLiters),
     ];
 
-    const upperBand = [
-      ...recentHistorical.map(() => null),
-      ...forecast.future.map((f) => f.upperBoundLiters),
-    ];
-
-    const lowerBand = [
-      ...recentHistorical.map(() => null),
-      ...forecast.future.map((f) => f.lowerBoundLiters),
-    ];
-
     return {
       labels,
       datasets: [
         {
-          label: 'Actual Consumption (L)',
+          label: 'Actual Water Used (L)',
           data: actualSeries,
           borderColor: '#0284C7',
-          backgroundColor: 'rgba(2, 132, 199, 0.08)',
+          backgroundColor: 'rgba(2, 132, 199, 0.06)',
           borderWidth: 2,
-          pointRadius: 2,
-          tension: 0.2,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#0284C7',
+          pointHoverBorderColor: '#FFFFFF',
+          pointHoverBorderWidth: 2,
+          tension: 0.25,
           spanGaps: false,
         },
         {
-          label: 'Predicted / Forecast (L)',
+          label: 'Expected Usage (L)',
           data: predictedSeries,
           borderColor: '#0F766E',
           borderDash: [6, 4],
           borderWidth: 2,
-          pointRadius: 2,
-          tension: 0.2,
-        },
-        {
-          label: 'Upper Expected Range (L)',
-          data: upperBand,
-          borderColor: 'rgba(15, 118, 110, 0.25)',
-          borderDash: [2, 2],
-          borderWidth: 1,
           pointRadius: 0,
-          fill: false,
-        },
-        {
-          label: 'Lower Expected Range (L)',
-          data: lowerBand,
-          borderColor: 'rgba(15, 118, 110, 0.25)',
-          backgroundColor: 'rgba(15, 118, 110, 0.08)',
-          borderDash: [2, 2],
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: '-1',
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#0F766E',
+          pointHoverBorderColor: '#FFFFFF',
+          pointHoverBorderWidth: 2,
+          tension: 0.25,
         },
       ],
     };
   }, [recentHistorical, forecast.future]);
 
+  const combinedChartOptions = useMemo(
+    () => ({
+      plugins: {
+        legend: {
+          position: 'top' as const,
+          align: 'end' as const,
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
+              ctx.parsed.y === null
+                ? ''
+                : `${ctx.dataset.label ?? 'Usage'}: ${Math.round(ctx.parsed.y).toLocaleString()} L`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          border: { display: false },
+          grid: { color: '#EEF2F6' },
+          ticks: {
+            color: '#64748B',
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+            callback: (val: string | number) => `${val} L`,
+          },
+        },
+        x: {
+          border: { display: false },
+          grid: { display: false },
+          ticks: {
+            color: '#64748B',
+            maxTicksLimit: 9,
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+          },
+        },
+      },
+    }),
+    []
+  );
+
   if (forecast.historical.length === 0) {
     return (
-      <div className="bg-white border border-slate-200 rounded-lg p-8 text-center">
-        <h2 className="font-display text-lg font-semibold text-[#0F172A]">No Data to Forecast</h2>
-        <p className="text-sm text-slate-600 mt-1">
-          Log readings or load sample data in Usage Monitoring to generate usage predictions.
+      <div className="surface-card p-10 text-center max-w-xl mx-auto mt-8">
+        <h2 className="font-display text-lg font-semibold text-[#0F172A]">No Readings Available Yet</h2>
+        <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">
+          Add daily water readings or load sample data on the Water Usage page to generate household predictions.
         </p>
       </div>
     );
@@ -103,59 +139,74 @@ export function PredictionPage({
 
   return (
     <div className="space-y-6">
-      {/* Strategy Pattern Controls */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h2 className="font-display text-base font-semibold text-[#0F172A]">
-              Forecasting Engine & Strategy Selection
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Uses the OOAD Strategy Pattern (<span className="font-mono-tabular">UsagePredictor</span> +{' '}
-              <span className="font-mono-tabular">Forecaster</span> interface) to swap forecasting algorithms dynamically.
-            </p>
+      {/* Outlook Summary & Controls */}
+      <section className="surface-card p-6 space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <div className="flex flex-wrap items-baseline gap-8">
+            <div>
+              <div className="text-xs font-medium text-slate-500">Expected Tomorrow</div>
+              <div className="font-mono-tabular text-[26px] leading-tight font-semibold text-[#0F766E] mt-1 whitespace-nowrap">
+                {forecast.nextDayPredictedLiters.toLocaleString()} L
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500">Expected Next {activeHorizon} Days</div>
+              <div className="font-mono-tabular text-[26px] leading-tight font-semibold text-[#0F172A] mt-1 whitespace-nowrap">
+                {Math.round(forecast.horizonTotalPredictedLiters).toLocaleString()} L
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500">Daily Trend</div>
+              <div className="font-mono-tabular text-sm font-medium text-slate-700 mt-2 whitespace-nowrap">
+                {forecast.slopeLitersPerDay >= 0 ? '+' : ''}
+                {forecast.slopeLitersPerDay} L/day
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
             <div>
-              <span className="block text-xs font-medium text-slate-600 mb-1">Forecasting Strategy</span>
-              <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md">
+              <span className="block text-[11px] font-medium text-slate-500 mb-1.5">Prediction Method</span>
+              <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-md max-w-full">
                 <button
                   type="button"
-                  onClick={() => onChangePredictionConfig('linear_regression', activeHorizon)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+                  disabled={updatingConfig}
+                  onClick={() => applyConfig('linear_regression', activeHorizon)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap disabled:opacity-60 ${
                     activeStrategy === 'linear_regression'
-                      ? 'bg-white text-[#0F172A] shadow-xs'
+                      ? 'bg-white text-[#0F172A] shadow-2xs'
                       : 'text-slate-600 hover:text-[#0F172A]'
                   }`}
                 >
-                  Linear Regression (OLS)
+                  Trend Forecast (Linear Regression)
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangePredictionConfig('moving_average', activeHorizon)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+                  disabled={updatingConfig}
+                  onClick={() => applyConfig('moving_average', activeHorizon)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap disabled:opacity-60 ${
                     activeStrategy === 'moving_average'
-                      ? 'bg-white text-[#0F172A] shadow-xs'
+                      ? 'bg-white text-[#0F172A] shadow-2xs'
                       : 'text-slate-600 hover:text-[#0F172A]'
                   }`}
                 >
-                  7-Day Moving Average
+                  Recent Average (7-Day)
                 </button>
               </div>
             </div>
 
             <div>
-              <span className="block text-xs font-medium text-slate-600 mb-1">Forecast Horizon</span>
+              <span className="block text-[11px] font-medium text-slate-500 mb-1.5">Time Range</span>
               <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-md">
                 {[7, 14, 30].map((days) => (
                   <button
                     key={days}
                     type="button"
-                    onClick={() => onChangePredictionConfig(activeStrategy, days)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+                    disabled={updatingConfig}
+                    onClick={() => applyConfig(activeStrategy, days)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded whitespace-nowrap disabled:opacity-60 ${
                       activeHorizon === days
-                        ? 'bg-white text-[#0F172A] shadow-xs'
+                        ? 'bg-white text-[#0F172A] shadow-2xs'
                         : 'text-slate-600 hover:text-[#0F172A]'
                     }`}
                   >
@@ -166,121 +217,65 @@ export function PredictionPage({
             </div>
           </div>
         </div>
+        {configError && (
+          <div className="p-3 text-xs text-[#DC2626] bg-red-50/90 border border-red-200 rounded-md" role="alert">
+            {configError}
+          </div>
+        )}
       </section>
 
-      {/* Metrics Summary */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Next Day Forecast</div>
-          <div className="font-mono-tabular text-2xl font-semibold text-[#0F766E] mt-1.5">
-            {forecast.nextDayPredictedLiters.toLocaleString()} L
+      {/* Split Analytics Chart + Side-by-Side Forecast Table */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <div className="lg:col-span-8 surface-card p-6 flex flex-col">
+          <div className="mb-4">
+            <h2 className="font-display text-base font-semibold text-[#0F172A]">
+              Actual vs Expected Water Usage
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Blue shows past household usage; the dashed teal line shows estimated usage for past and upcoming days.
+            </p>
           </div>
-          <div className="text-xs text-slate-500 mt-1">Projected tomorrow</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">{activeHorizon}-Day Projected Total</div>
-          <div className="font-mono-tabular text-2xl font-semibold text-[#0F172A] mt-1.5">
-            {forecast.horizonTotalPredictedLiters.toLocaleString()} L
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Cumulative forecast volume</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Model Error (MAE / RMSE)</div>
-          <div className="font-mono-tabular text-2xl font-semibold text-[#0F172A] mt-1.5">
-            {forecast.maeLiters} / {forecast.rmseLiters} L
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Mean absolute & root sq error</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Daily Trend Slope</div>
-          <div className="font-mono-tabular text-2xl font-semibold text-[#0284C7] mt-1.5">
-            {forecast.slopeLitersPerDay >= 0 ? '+' : ''}
-            {forecast.slopeLitersPerDay} L/d
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {forecast.rSquared !== null ? `R² = ${forecast.rSquared}` : 'Weighted trailing slope'}
-          </div>
-        </div>
-      </section>
-
-      {/* Main Forecast Chart */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6">
-        <div className="mb-4">
-          <h3 className="font-display text-base font-semibold text-[#0F172A]">
-            Historical Actual vs Predicted & {activeHorizon}-Day Forecast
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Solid blue line shows actual recorded consumption; dashed teal line shows calculated predictions and future range.
-          </p>
-        </div>
-        <ChartCanvas
-          type="line"
-          data={combinedChartData}
-          heightClass="h-80"
-          testId="prediction-main-chart"
-          ariaLabel="Historical actual versus predicted water usage and future forecast"
-          options={{
-            plugins: {
-              legend: { position: 'top', align: 'end', labels: { boxWidth: 12, usePointStyle: true } },
-            },
-            scales: {
-              y: {
-                beginAtZero: false,
-                title: { display: true, text: 'Volume (Liters)', color: '#64748B', font: { size: 11 } },
-                grid: { color: '#F1F5F9' },
-              },
-              x: { grid: { display: false } },
-            },
-          }}
-        />
-      </section>
-
-      {/* Methodology Explanation + Upcoming Forecast Table */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-6 space-y-4">
-          <h3 className="font-display text-base font-semibold text-[#0F172A]">
-            How This Prediction Is Calculated
-          </h3>
-          <p className="text-sm text-slate-600 leading-relaxed">{forecast.explanation}</p>
-          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-md">
-            <div className="text-xs font-medium text-slate-500 mb-1">Active Formula</div>
-            <div className="font-mono-tabular text-xs text-[#0F172A] break-words">
-              {forecast.formulaSummary}
-            </div>
-          </div>
-          <div className="text-xs text-slate-500 leading-relaxed">
-            Outlier resistance: extreme leak spikes above the upper interquartile fence are dampened during model fitting so abnormal plumbing events do not artificially raise future baselines and mask recurring leaks.
+          <div className="flex-1 min-h-[280px]">
+            <ChartCanvas
+              type="line"
+              data={combinedChartData}
+              heightClass="h-80"
+              testId="prediction-main-chart"
+              ariaLabel="Actual versus expected water usage and forecast"
+              options={combinedChartOptions}
+            />
           </div>
         </div>
 
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
+        <div className="lg:col-span-4 surface-card overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-200/80">
             <h3 className="font-display text-base font-semibold text-[#0F172A]">
-              Upcoming {activeHorizon}-Day Forecast Schedule
+              Daily Estimates (Next {activeHorizon} Days)
             </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Expected range based on past daily variation
+            </p>
           </div>
-          <div className="overflow-x-auto max-h-80 overflow-y-auto">
+          <div className="overflow-y-auto max-h-[340px] flex-1">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
+              <thead className="sticky top-0 bg-slate-50/95 backdrop-blur-xs">
+                <tr className="border-b border-slate-200/80 text-xs font-medium text-slate-500">
                   <th className="py-2.5 px-4">Date</th>
-                  <th className="py-2.5 px-4 text-right">Predicted (L)</th>
-                  <th className="py-2.5 px-4 text-right">Expected Low (L)</th>
-                  <th className="py-2.5 px-4 text-right">Expected High (L)</th>
+                  <th className="py-2.5 px-4 text-right">Expected</th>
+                  <th className="py-2.5 px-4 text-right">Range</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {forecast.future.map((f) => (
-                  <tr key={f.date} className="hover:bg-slate-50/60">
-                    <td className="py-2 px-4 font-mono-tabular text-xs text-[#0F172A]">{f.date}</td>
-                    <td className="py-2 px-4 text-right font-mono-tabular font-semibold text-[#0F766E]">
+                  <tr key={f.date} className="hover:bg-slate-50/70">
+                    <td className="py-2 px-4 font-mono-tabular text-xs text-[#0F172A] whitespace-nowrap">
+                      {f.date}
+                    </td>
+                    <td className="py-2 px-4 text-right font-mono-tabular font-semibold text-[#0F766E] whitespace-nowrap">
                       {f.predictedLiters.toLocaleString()} L
                     </td>
-                    <td className="py-2 px-4 text-right font-mono-tabular text-xs text-slate-600">
-                      {f.lowerBoundLiters.toLocaleString()} L
-                    </td>
-                    <td className="py-2 px-4 text-right font-mono-tabular text-xs text-slate-600">
-                      {f.upperBoundLiters.toLocaleString()} L
+                    <td className="py-2 px-4 text-right font-mono-tabular text-xs text-slate-500 whitespace-nowrap">
+                      {Math.round(f.lowerBoundLiters)}–{Math.round(f.upperBoundLiters)} L
                     </td>
                   </tr>
                 ))}
@@ -289,6 +284,28 @@ export function PredictionPage({
           </div>
         </div>
       </section>
+
+      {/* Collapsible Plain-Language Calculation Notes */}
+      <details className="surface-card p-5">
+        <summary className="text-xs font-semibold text-slate-700 cursor-pointer select-none">
+          How is this prediction calculated?
+        </summary>
+        <div className="mt-3 space-y-2.5 text-xs text-slate-600 leading-relaxed">
+          <p>{forecast.explanation}</p>
+          <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-md font-mono-tabular text-[#0F172A]">
+            {forecast.formulaSummary}
+          </div>
+          <p>
+            Average error on past days: <span className="font-mono-tabular">{forecast.maeLiters} L</span> (MAE) ·{' '}
+            Daily trend:{' '}
+            <span className="font-mono-tabular">
+              {forecast.slopeLitersPerDay >= 0 ? '+' : ''}
+              {forecast.slopeLitersPerDay} L/day
+            </span>
+            {forecast.rSquared !== null ? ` · Fit R² = ${forecast.rSquared}` : ''}
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

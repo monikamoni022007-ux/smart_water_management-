@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Database, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { DataSource, ReadingItem, WorkspacePayload } from '../types/api';
 
@@ -36,7 +36,6 @@ export function MonitoringPage({
 }: MonitoringPageProps) {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Add/Edit form state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingSource, setEditingSource] = useState<DataSource>('manual');
   const [date, setDate] = useState(today);
@@ -46,8 +45,9 @@ export function MonitoringPage({
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [busyDemo, setBusyDemo] = useState<'load' | 'clear' | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  // Filter state
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'demo'>('all');
@@ -73,13 +73,17 @@ export function MonitoringPage({
       labels: chronologicalFiltered.map((r) => r.date.slice(5)),
       datasets: [
         {
-          label: 'Daily Volume (L)',
+          label: 'Daily Water Used (L)',
           data: chronologicalFiltered.map((r) => r.volumeLiters),
           borderColor: '#0284C7',
-          backgroundColor: 'rgba(2, 132, 199, 0.10)',
+          backgroundColor: 'rgba(2, 132, 199, 0.08)',
           borderWidth: 2,
-          pointRadius: chronologicalFiltered.length > 45 ? 1.5 : 3,
-          tension: 0.2,
+          pointRadius: chronologicalFiltered.length <= 14 ? 3 : 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#0284C7',
+          pointHoverBorderColor: '#FFFFFF',
+          pointHoverBorderWidth: 2,
+          tension: 0.25,
           fill: true,
         },
       ],
@@ -87,30 +91,41 @@ export function MonitoringPage({
     [chronologicalFiltered]
   );
 
-  const weeklyChartData = useMemo(() => {
-    const groups = new Map<string, number>();
-    for (const r of chronologicalFiltered) {
-      const d = new Date(`${r.date}T12:00:00Z`);
-      const dayNum = d.getUTCDay() || 7;
-      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-      const key = `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-      groups.set(key, (groups.get(key) ?? 0) + r.volumeLiters);
-    }
-    const entries = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return {
-      labels: entries.map(([k]) => k),
-      datasets: [
-        {
-          label: 'Weekly Total (L)',
-          data: entries.map(([, v]) => Number(v.toFixed(1))),
-          backgroundColor: '#0F766E',
-          borderRadius: 4,
+  const dailyChartOptions = useMemo(
+    () => ({
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx: { parsed: { y: number | null } }) =>
+              `Used: ${Math.round(ctx.parsed.y ?? 0).toLocaleString()} L`,
+          },
         },
-      ],
-    };
-  }, [chronologicalFiltered]);
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          border: { display: false },
+          grid: { color: '#EEF2F6' },
+          ticks: {
+            color: '#64748B',
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+            callback: (val: string | number) => `${val} L`,
+          },
+        },
+        x: {
+          border: { display: false },
+          grid: { display: false },
+          ticks: {
+            color: '#64748B',
+            maxTicksLimit: 8,
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+          },
+        },
+      },
+    }),
+    []
+  );
 
   function startEdit(r: ReadingItem) {
     setEditingId(r.id);
@@ -135,21 +150,26 @@ export function MonitoringPage({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setFormError('');
     setFormSuccess('');
 
     const vol = Number(volumeLiters);
     const night = Number(nightFlowLph);
-    if (!date) {
-      setFormError('Please select a valid date.');
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setFormError('Please choose a valid date.');
       return;
     }
     if (!volumeLiters || Number.isNaN(vol) || vol <= 0 || vol > 50000) {
-      setFormError('Water volume must be between 1 and 50,000 liters.');
+      setFormError('Water used must be between 1 and 50,000 liters.');
       return;
     }
     if (nightFlowLph === '' || Number.isNaN(night) || night < 0 || night > 2000) {
-      setFormError('Nighttime flow must be between 0 and 2,000 L/h.');
+      setFormError('Overnight flow must be between 0 and 2,000 liters per hour.');
+      return;
+    }
+    if (notes.trim().length > 240) {
+      setFormError('Note must be 240 characters or fewer.');
       return;
     }
 
@@ -172,12 +192,12 @@ export function MonitoringPage({
           nightFlowLph: night,
           notes: notes.trim(),
         });
-        setFormSuccess(`Saved manual reading (${vol} L) for ${date}.`);
+        setFormSuccess(`Added reading (${vol} L) for ${date}.`);
         setVolumeLiters('');
         setNotes('');
       }
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Unable to save reading.');
+      setFormError(err instanceof Error ? err.message : 'Could not save reading.');
     } finally {
       setSubmitting(false);
     }
@@ -185,315 +205,319 @@ export function MonitoringPage({
 
   return (
     <div className="space-y-6">
-      {/* Top Form + Dataset Actions */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-display text-base font-semibold text-[#0F172A]">
-                {editingId !== null ? 'Edit Water Usage Record' : 'Log Water Usage Reading'}
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Simulated flow sensor ({workspace.sensorInfo.sensorId}) captures daily volume and nighttime flow rate.
-              </p>
+      {/* Top 2-Column Entry & Trend Workspace */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Form Column */}
+        <div className="lg:col-span-5 surface-card p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-start justify-between gap-2 mb-4">
+              <div>
+                <h2 className="font-display text-base font-semibold text-[#0F172A]">
+                  {editingId !== null ? 'Edit Daily Reading' : 'Add Daily Water Reading'}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  Enter your daily meter total. Overnight flow is normally 1–4 L/h when taps are off.
+                </p>
+              </div>
+              {editingId !== null && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-[#0F172A] underline shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3" aria-hidden="true" />
+                  <span>Cancel Edit</span>
+                </button>
+              )}
             </div>
-            {editingId !== null && (
+
+            {formError && (
+              <div className="mb-4 p-3 text-xs text-[#DC2626] bg-red-50/90 border border-red-200 rounded-md" role="alert">
+                {formError}
+              </div>
+            )}
+            {formSuccess && (
+              <div className="mb-4 p-3 text-xs text-[#15803D] bg-emerald-50/90 border border-emerald-200 rounded-md" role="status">
+                {formSuccess}
+              </div>
+            )}
+
+            <form id="reading-entry-form" onSubmit={handleSubmit} noValidate className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label htmlFor="reading-date" className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Date
+                  </label>
+                  <input
+                    id="reading-date"
+                    type="date"
+                    required
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="field-input font-mono-tabular"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="reading-volume" className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Water Used (Liters)
+                  </label>
+                  <input
+                    id="reading-volume"
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    max="50000"
+                    required
+                    placeholder="e.g. 315"
+                    value={volumeLiters}
+                    onChange={(e) => setVolumeLiters(e.target.value)}
+                    className="field-input font-mono-tabular"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label htmlFor="reading-nightflow" className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Overnight Flow (Liters/hour)
+                  </label>
+                  <input
+                    id="reading-nightflow"
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="2000"
+                    required
+                    placeholder="e.g. 2.5"
+                    value={nightFlowLph}
+                    onChange={(e) => setNightFlowLph(e.target.value)}
+                    className="field-input font-mono-tabular"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="reading-notes" className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Note (Optional)
+                  </label>
+                  <input
+                    id="reading-notes"
+                    type="text"
+                    maxLength={240}
+                    placeholder="Laundry, garden watering, etc."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="field-input"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#0F766E] rounded-md shadow-xs hover:bg-[#0D625B] disabled:opacity-50 whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  <span>
+                    {submitting
+                      ? 'Saving...'
+                      : editingId !== null
+                      ? 'Save Changes'
+                      : 'Save Reading'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>Sample dataset:</span>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={resetForm}
-                className="text-xs font-medium text-slate-600 hover:text-[#0F172A] underline"
+                disabled={busyDemo !== null}
+                onClick={async () => {
+                  if (busyDemo !== null) return;
+                  setFormError('');
+                  setFormSuccess('');
+                  setBusyDemo('load');
+                  try {
+                    await onLoadDemo();
+                    setFormSuccess('Loaded 92 days of sample water readings.');
+                  } catch (err) {
+                    setFormError(err instanceof Error ? err.message : 'Could not load sample data.');
+                  } finally {
+                    setBusyDemo(null);
+                  }
+                }}
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 disabled:opacity-50"
               >
-                Cancel Edit
+                {busyDemo === 'load' ? 'Loading...' : 'Load 92-Day Sample'}
               </button>
-            )}
-          </div>
-
-          {formError && (
-            <div className="mb-4 p-3 text-xs text-[#DC2626] bg-red-50 border border-red-200 rounded-md" role="alert">
-              {formError}
-            </div>
-          )}
-          {formSuccess && (
-            <div className="mb-4 p-3 text-xs text-[#15803D] bg-emerald-50 border border-emerald-200 rounded-md" role="status">
-              {formSuccess}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} noValidate className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label htmlFor="reading-date" className="block text-xs font-medium text-slate-700 mb-1">
-                Reading Date
-              </label>
-              <input
-                id="reading-date"
-                type="date"
-                required
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md font-mono-tabular focus:outline-none focus:border-[#0F766E]"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="reading-volume" className="block text-xs font-medium text-slate-700 mb-1">
-                Consumption (Liters)
-              </label>
-              <input
-                id="reading-volume"
-                type="number"
-                step="0.1"
-                min="1"
-                max="50000"
-                required
-                placeholder="e.g. 315"
-                value={volumeLiters}
-                onChange={(e) => setVolumeLiters(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md font-mono-tabular focus:outline-none focus:border-[#0F766E]"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="reading-nightflow" className="block text-xs font-medium text-slate-700 mb-1">
-                Night Flow (L/h)
-              </label>
-              <input
-                id="reading-nightflow"
-                type="number"
-                step="0.1"
-                min="0"
-                max="2000"
-                required
-                placeholder="e.g. 2.5"
-                value={nightFlowLph}
-                onChange={(e) => setNightFlowLph(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md font-mono-tabular focus:outline-none focus:border-[#0F766E]"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="reading-notes" className="block text-xs font-medium text-slate-700 mb-1">
-                Notes (Optional)
-              </label>
-              <input
-                id="reading-notes"
-                type="text"
-                maxLength={240}
-                placeholder="Laundry, garden, etc."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
-              />
-            </div>
-
-            <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-3 pt-1">
               <button
-                type="submit"
-                disabled={submitting}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#0F766E] rounded-md hover:bg-[#0D625B] disabled:opacity-50 whitespace-nowrap"
+                type="button"
+                disabled={busyDemo !== null}
+                onClick={async () => {
+                  if (busyDemo !== null) return;
+                  setFormError('');
+                  setFormSuccess('');
+                  setBusyDemo('clear');
+                  try {
+                    await onClearDemo();
+                    setFormSuccess('Cleared sample data while keeping your own readings.');
+                  } catch (err) {
+                    setFormError(err instanceof Error ? err.message : 'Could not clear sample data.');
+                  } finally {
+                    setBusyDemo(null);
+                  }
+                }}
+                className="px-2 py-1 text-xs font-medium text-slate-500 hover:text-[#0F172A] underline disabled:opacity-50"
               >
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                <span>
-                  {submitting
-                    ? 'Saving...'
-                    : editingId !== null
-                    ? 'Update Reading'
-                    : 'Save Reading'}
-                </span>
+                {busyDemo === 'clear' ? 'Clearing...' : 'Clear Sample Data'}
               </button>
             </div>
-          </form>
-        </div>
-
-        {/* Sample Data Management Panel */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[#0F172A]">
-              <Database className="w-4 h-4 text-[#0F766E]" aria-hidden="true" />
-              <h2 className="font-display text-base font-semibold">Sample Simulation Dataset</h2>
-            </div>
-            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              Load 92 days of deterministic meter data with weekday/weekend cadence, gradual trend, conservation shift, and simulated nighttime leak periods. Manual readings are always preserved separately.
-            </p>
-            <div className="mt-3 text-xs text-slate-500">
-              Stored records:{' '}
-              <span className="font-mono-tabular font-medium text-[#0F172A]">
-                {workspace.readings.filter((r) => r.source === 'manual').length} Manual
-              </span>{' '}
-              ·{' '}
-              <span className="font-mono-tabular font-medium text-[#0F172A]">
-                {workspace.readings.filter((r) => r.source === 'demo').length} Demo
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onLoadDemo}
-              className="flex-1 px-3 py-2 text-xs font-medium text-[#0F172A] bg-slate-50 border border-slate-300 rounded-md hover:bg-slate-100 whitespace-nowrap"
-            >
-              Load Sample Data (92d)
-            </button>
-            <button
-              type="button"
-              onClick={onClearDemo}
-              className="px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 whitespace-nowrap"
-            >
-              Clear Demo Only
-            </button>
           </div>
         </div>
-      </section>
 
-      {/* Date Filter Bar */}
-      <section className="bg-white border border-slate-200 rounded-lg p-4 flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <div>
-            <label htmlFor="filter-start" className="block text-xs font-medium text-slate-600 mb-1">
-              From Date
-            </label>
-            <input
-              id="filter-start"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="px-3 py-1.5 text-xs border border-slate-300 rounded-md font-mono-tabular"
-            />
-          </div>
-          <div>
-            <label htmlFor="filter-end" className="block text-xs font-medium text-slate-600 mb-1">
-              To Date
-            </label>
-            <input
-              id="filter-end"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="px-3 py-1.5 text-xs border border-slate-300 rounded-md font-mono-tabular"
-            />
-          </div>
-          <div>
-            <span className="block text-xs font-medium text-slate-600 mb-1">Source</span>
-            <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-md">
-              {(['all', 'manual', 'demo'] as const).map((src) => (
+        {/* Chart & Filter Column */}
+        <div className="lg:col-span-7 surface-card p-6 flex flex-col">
+          <div className="flex flex-wrap items-end justify-between gap-3 pb-4 mb-4 border-b border-slate-100">
+            <div>
+              <h3 className="font-display text-base font-semibold text-[#0F172A]">
+                Daily Water Usage Trend
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5 font-mono-tabular">
+                Showing {filteredReadings.length} of {workspace.readings.length} readings
+              </p>
+            </div>
+
+            <div className="inline-flex flex-wrap items-center gap-1 p-0.5 bg-slate-100 rounded-md">
+              {(
+                [
+                  ['all', 'All'],
+                  ['manual', 'Added by you'],
+                  ['demo', 'Sample data'],
+                ] as const
+              ).map(([src, label]) => (
                 <button
                   key={src}
                   type="button"
                   onClick={() => setSourceFilter(src)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors capitalize ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded whitespace-nowrap ${
                     sourceFilter === src
-                      ? 'bg-white text-[#0F172A] shadow-xs'
+                      ? 'bg-white text-[#0F172A] shadow-2xs'
                       : 'text-slate-600 hover:text-[#0F172A]'
                   }`}
                 >
-                  {src}
+                  {label}
                 </button>
               ))}
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500 font-mono-tabular">
-            Showing {filteredReadings.length} of {workspace.readings.length} readings
-          </span>
-          {(startDate || endDate || sourceFilter !== 'all') && (
-            <button
-              type="button"
-              onClick={() => {
-                setStartDate('');
-                setEndDate('');
-                setSourceFilter('all');
-              }}
-              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50"
-            >
-              Reset Filters
-            </button>
-          )}
+          <div className="flex flex-wrap items-end gap-3 mb-4">
+            <div>
+              <label htmlFor="filter-start" className="block text-[11px] font-medium text-slate-500 mb-1">
+                From
+              </label>
+              <input
+                id="filter-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="field-input py-1.5 text-xs font-mono-tabular w-auto"
+              />
+            </div>
+            <div>
+              <label htmlFor="filter-end" className="block text-[11px] font-medium text-slate-500 mb-1">
+                To
+              </label>
+              <input
+                id="filter-end"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="field-input py-1.5 text-xs font-mono-tabular w-auto"
+              />
+            </div>
+            {(startDate || endDate || sourceFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                  setSourceFilter('all');
+                }}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 min-h-[220px]">
+            {chronologicalFiltered.length > 0 ? (
+              <ChartCanvas
+                type="line"
+                data={dailyChartData}
+                heightClass="h-60"
+                testId="monitoring-daily-chart"
+                ariaLabel="Daily water consumption trend"
+                options={dailyChartOptions}
+              />
+            ) : (
+              <div className="h-60 flex items-center justify-center text-sm text-slate-500 border border-dashed border-slate-200 rounded-md">
+                {workspace.readings.length === 0
+                  ? 'Add a reading or load sample data to view your daily trend.'
+                  : 'No readings fall within your selected filters.'}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
-      {/* Daily & Weekly Filtered Charts */}
-      {chronologicalFiltered.length > 0 && (
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white border border-slate-200 rounded-lg p-6">
-            <h3 className="font-display text-sm font-semibold text-[#0F172A] mb-3">
-              Daily Consumption Pattern (Filtered)
-            </h3>
-            <ChartCanvas
-              type="line"
-              data={dailyChartData}
-              heightClass="h-56"
-              testId="monitoring-daily-chart"
-              ariaLabel="Filtered daily water consumption line chart"
-              options={{
-                plugins: { legend: { display: false } },
-                scales: {
-                  y: { beginAtZero: true, grid: { color: '#F1F5F9' } },
-                  x: { grid: { display: false } },
-                },
-              }}
-            />
+      {/* Reading History Ledger */}
+      <section className="surface-card overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-base font-semibold text-[#0F172A]">
+              Reading History
+            </h2>
           </div>
-          <div className="bg-white border border-slate-200 rounded-lg p-6">
-            <h3 className="font-display text-sm font-semibold text-[#0F172A] mb-3">
-              Weekly Totals (Filtered)
-            </h3>
-            <ChartCanvas
-              type="bar"
-              data={weeklyChartData}
-              heightClass="h-56"
-              testId="monitoring-weekly-chart"
-              ariaLabel="Filtered weekly water consumption bar chart"
-              options={{
-                plugins: { legend: { display: false } },
-                scales: {
-                  y: { beginAtZero: true, grid: { color: '#F1F5F9' } },
-                  x: { grid: { display: false } },
-                },
-              }}
-            />
-          </div>
-        </section>
-      )}
-
-      {/* Consumption History Table */}
-      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="font-display text-base font-semibold text-[#0F172A]">
-            Consumption History Log
-          </h2>
-          <span className="text-xs text-slate-500">Newest records first</span>
+          <span className="text-xs text-slate-500">Newest first</span>
         </div>
 
         {filteredReadings.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">
-            No readings match the current filter criteria.
+          <div className="p-10 text-center text-sm text-slate-500">
+            {workspace.readings.length === 0
+              ? 'No water readings stored yet. Add a daily reading above or load sample data.'
+              : 'No readings match your selected dates.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-medium text-slate-500">
-                  <th className="py-2.5 px-4">Date</th>
-                  <th className="py-2.5 px-4 text-right">Volume (L)</th>
-                  <th className="py-2.5 px-4 text-right">Night Flow (L/h)</th>
-                  <th className="py-2.5 px-4">Source</th>
-                  <th className="py-2.5 px-4">Notes</th>
-                  <th className="py-2.5 px-4 text-right">Actions</th>
+                <tr className="border-b border-slate-200/80 bg-slate-50/70 text-xs font-medium text-slate-500">
+                  <th className="py-2.5 px-5">Date</th>
+                  <th className="py-2.5 px-5 text-right">Water Used</th>
+                  <th className="py-2.5 px-5 text-right">Overnight Flow</th>
+                  <th className="py-2.5 px-5">Entry Type</th>
+                  <th className="py-2.5 px-5">Note</th>
+                  <th className="py-2.5 px-5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredReadings.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50/60">
-                    <td className="py-2.5 px-4 font-mono-tabular text-xs text-[#0F172A] whitespace-nowrap">
+                  <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-2.5 px-5 font-mono-tabular text-xs text-[#0F172A] whitespace-nowrap">
                       {r.date}
                     </td>
-                    <td className="py-2.5 px-4 text-right font-mono-tabular font-medium text-[#0F172A] whitespace-nowrap">
+                    <td className="py-2.5 px-5 text-right font-mono-tabular font-medium text-[#0F172A] whitespace-nowrap">
                       {r.volumeLiters.toLocaleString()} L
                     </td>
                     <td
-                      className={`py-2.5 px-4 text-right font-mono-tabular text-xs whitespace-nowrap ${
+                      className={`py-2.5 px-5 text-right font-mono-tabular text-xs whitespace-nowrap ${
                         r.nightFlowLph >= workspace.settings.nightFlowThresholdLph
                           ? 'text-[#DC2626] font-semibold'
                           : 'text-slate-600'
@@ -501,33 +525,48 @@ export function MonitoringPage({
                     >
                       {r.nightFlowLph.toFixed(1)} L/h
                     </td>
-                    <td className="py-2.5 px-4 text-xs whitespace-nowrap">
+                    <td className="py-2.5 px-5 text-xs whitespace-nowrap">
                       <span
                         className={
-                          r.source === 'manual' ? 'text-[#0F766E] font-semibold' : 'text-slate-500'
+                          r.source === 'manual' ? 'text-[#0F766E] font-medium' : 'text-slate-500'
                         }
                       >
-                        {r.source === 'manual' ? 'Manual Entry' : 'Demo Dataset'}
+                        {r.source === 'manual' ? 'Added by you' : 'Sample data'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-4 text-xs text-slate-600 max-w-xs truncate">
+                    <td className="py-2.5 px-5 text-xs text-slate-600 max-w-xs truncate">
                       {r.notes || '—'}
                     </td>
-                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                    <td className="py-2.5 px-5 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => startEdit(r)}
                           aria-label={`Edit reading ${r.date} (${r.id})`}
-                          className="p-1.5 text-slate-500 hover:text-[#0F766E] rounded hover:bg-slate-100"
+                          className="p-1.5 text-slate-500 hover:text-[#0F766E] rounded-md hover:bg-slate-100"
                         >
                           <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => onDeleteReading(r.id)}
+                          disabled={deletingId === r.id}
+                          onClick={async () => {
+                            if (deletingId === r.id) return;
+                            setFormError('');
+                            setFormSuccess('');
+                            setDeletingId(r.id);
+                            try {
+                              await onDeleteReading(r.id);
+                              if (editingId === r.id) resetForm();
+                              setFormSuccess(`Deleted reading for ${r.date}.`);
+                            } catch (err) {
+                              setFormError(err instanceof Error ? err.message : 'Could not delete reading.');
+                            } finally {
+                              setDeletingId(null);
+                            }
+                          }}
                           aria-label={`Delete reading ${r.date} (${r.id})`}
-                          className="p-1.5 text-slate-500 hover:text-[#DC2626] rounded hover:bg-red-50"
+                          className="p-1.5 text-slate-500 hover:text-[#DC2626] rounded-md hover:bg-red-50 disabled:opacity-40"
                         >
                           <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>

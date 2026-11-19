@@ -145,3 +145,21 @@ test('ConservationManager evaluates goal progress and before/after savings', () 
   assert.ok(progress.estimatedDailySavingsLiters > 0);
   assert.ok(progress.recommendations.length >= 1);
 });
+
+test('ConservationManager returns zero savings when readings list is empty', () => {
+  const manager = new ConservationManager();
+  const emptyProgress = manager.evaluateProgress([], {
+    userId: 1,
+    dailyTargetLiters: 310,
+    monthlyLimitLiters: 9400,
+    baselineDailyLiters: 342,
+    actionStartDate: '2026-10-28',
+    actionLabel: 'Baseline check',
+  });
+
+  assert.equal(emptyProgress.beforeAvgLiters, 0);
+  assert.equal(emptyProgress.afterAvgLiters, 0);
+  assert.equal(emptyProgress.estimatedDailySavingsLiters, 0);
+  assert.equal(emptyProgress.estimatedTotalSavedLiters, 0);
+  assert.equal(emptyProgress.savingsPercent, 0);
+});

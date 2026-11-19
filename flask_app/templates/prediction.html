@@ -1,39 +1,46 @@
 {% extends "base.html" %}
 {% block page_title %}Usage Prediction{% endblock %}
 {% block content %}
-<div class="card">
-  <form method="post" style="display:flex;gap:16px;align-items:end;flex-wrap:wrap">
-    <div style="min-width:240px">
-      <label class="kpi-label">Forecasting Strategy (Strategy Pattern)</label>
-      <select name="strategy">
-        <option value="linear_regression" {{ 'selected' if ws.settings.forecast_strategy == 'linear_regression' else '' }}>Linear Regression (OLS + Weekly Seasonality)</option>
-        <option value="moving_average" {{ 'selected' if ws.settings.forecast_strategy == 'moving_average' else '' }}>7-Day Moving Average</option>
-      </select>
-    </div>
-    <div>
-      <label class="kpi-label">Horizon (Days)</label>
-      <select name="horizon">
-        {% for d in [7, 14, 30] %}
-          <option value="{{ d }}" {{ 'selected' if ws.settings.forecast_horizon_days == d else '' }}>{{ d }} Days</option>
-        {% endfor %}
-      </select>
-    </div>
-    <button type="submit" class="btn btn-primary">Apply Strategy</button>
-  </form>
-</div>
-
-<div class="grid-4">
-  <div class="card"><div class="kpi-label">Next-Day Forecast</div><div class="kpi-value mono" style="color:#0f766e">{{ ws.forecast.next_day_predicted_liters }} L</div></div>
-  <div class="card"><div class="kpi-label">Horizon Total</div><div class="kpi-value mono">{{ ws.forecast.horizon_total_predicted_liters }} L</div></div>
-  <div class="card"><div class="kpi-label">MAE / RMSE</div><div class="kpi-value mono">{{ ws.forecast.mae_liters }} / {{ ws.forecast.rmse_liters }} L</div></div>
-  <div class="card"><div class="kpi-label">Daily Slope</div><div class="kpi-value mono">{{ ws.forecast.slope_liters_per_day }} L/d</div></div>
-</div>
+<div id="pred-status" style="display:none"></div>
 
 <div class="card">
-  <h2 style="font-size:16px;margin-bottom:8px">Actual vs Predicted & Future Forecast</h2>
-  <p style="font-size:12px;color:#475569;margin-bottom:12px">{{ ws.forecast.explanation }} Formula: <span class="mono">{{ ws.forecast.formula_summary }}</span></p>
+  <div style="display:flex;justify-content:space-between;align-items:end;flex-wrap:wrap;gap:16px">
+    <div style="display:flex;gap:32px;flex-wrap:wrap">
+      <div><div class="kpi-label">Expected Tomorrow</div><div id="pred-next-day" class="kpi-value mono" style="color:#0f766e">{{ ws.forecast.next_day_predicted_liters }} L</div></div>
+      <div><div class="kpi-label">Expected Next {{ ws.settings.forecast_horizon_days }} Days</div><div id="pred-horizon-total" class="kpi-value mono">{{ ws.forecast.horizon_total_predicted_liters | round | int }} L</div></div>
+    </div>
+    <form id="pred-config-form" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+      <div style="min-width:220px">
+        <label class="kpi-label">Prediction Method</label>
+        <select name="strategy">
+          <option value="linear_regression" {{ 'selected' if ws.settings.forecast_strategy == 'linear_regression' else '' }}>Trend Forecast (Linear Regression)</option>
+          <option value="moving_average" {{ 'selected' if ws.settings.forecast_strategy == 'moving_average' else '' }}>Recent Average (7-Day)</option>
+        </select>
+      </div>
+      <div>
+        <label class="kpi-label">Time Range</label>
+        <select name="horizon">
+          {% for d in [7, 14, 30] %}
+            <option value="{{ d }}" {{ 'selected' if ws.settings.forecast_horizon_days == d else '' }}>{{ d }} Days</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" id="pred-apply-btn" class="btn btn-primary">Update</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin-bottom:8px">Actual vs Expected Water Usage</h2>
+  <p style="font-size:12px;color:#475569;margin-bottom:12px">Blue shows what your home actually used; the dashed line shows our estimate for past and upcoming days.</p>
   <div class="chart-box"><canvas id="predMainChart"></canvas></div>
 </div>
+
+<details class="card">
+  <summary style="font-size:13px;font-weight:600;cursor:pointer">How is this prediction calculated?</summary>
+  <p style="font-size:12px;color:#475569;margin-top:8px">{{ ws.forecast.explanation }}</p>
+  <div class="mono" style="font-size:12px;background:#f8fafc;border:1px solid #e2e8f0;padding:10px;border-radius:6px">{{ ws.forecast.formula_summary }}</div>
+</details>
 {% endblock %}
 
 {% block scripts %}
@@ -45,7 +52,7 @@
   const pred = [...h.map(x => x.predicted_liters), ...f.map(x => x.predicted_liters)];
   renderLineChart("predMainChart", labels, [
     { label: "Actual (L)", data: actual, borderColor: "#0284c7", borderWidth: 2 },
-    { label: "Predicted / Forecast (L)", data: pred, borderColor: "#0f766e", borderDash: [6,4], borderWidth: 2 }
+    { label: "Expected (L)", data: pred, borderColor: "#0f766e", borderDash: [6,4], borderWidth: 2 }
   ]);
 </script>
 {% endblock %}

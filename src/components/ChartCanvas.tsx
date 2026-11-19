@@ -39,6 +39,42 @@ export function ChartCanvas<T extends ChartType>({
       chartRef.current = null;
     }
 
+    const defaultPlugins = {
+      tooltip: {
+        backgroundColor: '#0F172A',
+        titleColor: '#F8FAFC',
+        bodyColor: '#E2E8F0',
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        borderWidth: 1,
+        padding: 10,
+        cornerRadius: 6,
+        titleFont: {
+          family: '"Plus Jakarta Sans", sans-serif',
+          size: 12,
+          weight: 600 as const,
+        },
+        bodyFont: {
+          family: '"IBM Plex Mono", monospace',
+          size: 12,
+        },
+        displayColors: true,
+        boxPadding: 4,
+      },
+      legend: {
+        labels: {
+          color: '#475569',
+          font: {
+            family: '"DM Sans", sans-serif',
+            size: 12,
+          },
+          usePointStyle: false,
+          boxWidth: 16,
+          boxHeight: 3,
+          padding: 16,
+        },
+      },
+    };
+
     const config: ChartConfiguration<T> = {
       type,
       data,
@@ -46,7 +82,15 @@ export function ChartCanvas<T extends ChartType>({
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
         ...options,
+        plugins: {
+          ...defaultPlugins,
+          ...(options?.plugins as Record<string, unknown> | undefined),
+        },
       } as ChartOptions<T>,
     };
 

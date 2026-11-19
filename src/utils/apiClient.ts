@@ -7,6 +7,8 @@ import {
   WorkspacePayload,
 } from '../types/api';
 
+const inFlightMutations = new Map<string, Promise<unknown>>();
+
 async function request<T>(url: string, options: RequestInit = {}, userId?: number): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
@@ -22,14 +24,26 @@ async function request<T>(url: string, options: RequestInit = {}, userId?: numbe
   return data as T;
 }
 
+function dedupeMutation<T>(key: string, runner: () => Promise<T>): Promise<T> {
+  const existing = inFlightMutations.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const promise = runner().finally(() => {
+    inFlightMutations.delete(key);
+  });
+  inFlightMutations.set(key, promise);
+  return promise;
+}
+
 export const api = {
-  listUsers: () => request<{ users: UserAccount[] }>('/api/users'),
+  listUsers: (signal?: AbortSignal) => request<{ users: UserAccount[] }>('/api/users', { signal }),
 
   login: (email: string, password: string) =>
-    request<{ user: UserAccount }>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    }),
+    dedupeMutation(`login:${email}`, () =>
+      request<{ user: UserAccount }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      })
+    ),
 
   register: (payload: {
     name: string;
@@ -38,64 +52,87 @@ export const api = {
     householdName: string;
     householdSize: number;
   }) =>
-    request<{ user: UserAccount }>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    dedupeMutation(`register:${payload.email}`, () =>
+      request<{ user: UserAccount }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    ),
 
-  getWorkspace: (userId: number, strategy?: ForecastMethodKey, horizon?: number) => {
+  getWorkspace: (
+    userId: number,
+    strategy?: ForecastMethodKey,
+    horizon?: number,
+    signal?: AbortSignal
+  ) => {
     const params = new URLSearchParams();
     if (strategy) params.set('strategy', strategy);
     if (horizon) params.set('horizon', String(horizon));
     const qs = params.toString();
-    return request<WorkspacePayload>(`/api/workspace${qs ? `?${qs}` : ''}`, {}, userId);
+    return request<WorkspacePayload>(`/api/workspace${qs ? `?${qs}` : ''}`, { signal }, userId);
   },
 
   addReading: (
     userId: number,
     payload: { date: string; volumeLiters: number; nightFlowLph: number; notes: string }
   ) =>
-    request('/api/readings', { method: 'POST', body: JSON.stringify(payload) }, userId),
+    dedupeMutation(`add:${userId}:${payload.date}:${payload.volumeLiters}:${payload.nightFlowLph}`, () =>
+      request('/api/readings', { method: 'POST', body: JSON.stringify(payload) }, userId)
+    ),
 
   updateReading: (
     userId: number,
     id: number,
     payload: { date: string; volumeLiters: number; nightFlowLph: number; notes: string; source?: string }
   ) =>
-    request(`/api/readings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, userId),
+    dedupeMutation(`put:${userId}:${id}`, () =>
+      request(`/api/readings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, userId)
+    ),
 
   deleteReading: (userId: number, id: number) =>
-    request(`/api/readings/${id}`, { method: 'DELETE' }, userId),
+    dedupeMutation(`del:${userId}:${id}`, () =>
+      request(`/api/readings/${id}`, { method: 'DELETE' }, userId)
+    ),
 
   loadDemoData: (userId: number, variant: 'full90' | 'apartment14' = 'full90') =>
-    request<{ insertedCount: number }>(
-      '/api/demo/load',
-      { method: 'POST', body: JSON.stringify({ variant }) },
-      userId
+    dedupeMutation(`demo-load:${userId}:${variant}`, () =>
+      request<{ insertedCount: number }>(
+        '/api/demo/load',
+        { method: 'POST', body: JSON.stringify({ variant }) },
+        userId
+      )
     ),
 
   clearDemoData: (userId: number) =>
-    request<{ removedCount: number }>('/api/demo/clear', { method: 'POST' }, userId),
+    dedupeMutation(`demo-clear:${userId}`, () =>
+      request<{ removedCount: number }>('/api/demo/clear', { method: 'POST' }, userId)
+    ),
 
   updateSettings: (userId: number, patch: Partial<UserSettings>) =>
-    request<{ settings: UserSettings }>(
-      '/api/settings',
-      { method: 'PUT', body: JSON.stringify(patch) },
-      userId
+    dedupeMutation(`settings:${userId}:${JSON.stringify(patch)}`, () =>
+      request<{ settings: UserSettings }>(
+        '/api/settings',
+        { method: 'PUT', body: JSON.stringify(patch) },
+        userId
+      )
     ),
 
   updateAlertStatus: (userId: number, alertId: number, status: AlertStatus) =>
-    request(
-      `/api/alerts/${alertId}`,
-      { method: 'PATCH', body: JSON.stringify({ status }) },
-      userId
+    dedupeMutation(`alert:${userId}:${alertId}:${status}`, () =>
+      request(
+        `/api/alerts/${alertId}`,
+        { method: 'PATCH', body: JSON.stringify({ status }) },
+        userId
+      )
     ),
 
   updateConservationGoal: (userId: number, goal: Omit<ConservationGoal, 'userId' | 'id'>) =>
-    request<{ goal: ConservationGoal }>(
-      '/api/conservation',
-      { method: 'PUT', body: JSON.stringify(goal) },
-      userId
+    dedupeMutation(`goal:${userId}`, () =>
+      request<{ goal: ConservationGoal }>(
+        '/api/conservation',
+        { method: 'PUT', body: JSON.stringify(goal) },
+        userId
+      )
     ),
 };
 

@@ -7,6 +7,40 @@ from models.domain import Reading
 class ConservationManager:
     """Manages water conservation targets, before/after comparisons, and recommendations."""
 
+    @staticmethod
+    def validate_goal(goal: Dict) -> tuple[bool, List[str]]:
+        errors: List[str] = []
+        try:
+            dt = float(goal.get("daily_target_liters", 0))
+            if dt < 50 or dt > 20000:
+                errors.append("Daily target must be between 50 and 20,000 liters.")
+        except (TypeError, ValueError):
+            errors.append("Daily target must be a valid number.")
+
+        try:
+            ml = float(goal.get("monthly_limit_liters", 0))
+            if ml < 1000 or ml > 600000:
+                errors.append("Monthly limit must be between 1,000 and 600,000 liters.")
+        except (TypeError, ValueError):
+            errors.append("Monthly limit must be a valid number.")
+
+        try:
+            bl = float(goal.get("baseline_daily_liters", 0))
+            if bl < 50 or bl > 25000:
+                errors.append("Baseline daily usage must be between 50 and 25,000 liters.")
+        except (TypeError, ValueError):
+            errors.append("Baseline daily usage must be a valid number.")
+
+        action_start = str(goal.get("action_start_date", "")).strip()
+        if len(action_start) != 10 or action_start[4] != "-" or action_start[7] != "-":
+            errors.append("Action start date must be a valid YYYY-MM-DD value.")
+
+        action_label = str(goal.get("action_label", "")).strip()
+        if len(action_label) < 3:
+            errors.append("Action description must be at least 3 characters.")
+
+        return (len(errors) == 0, errors)
+
     def evaluate_progress(self, readings: List[Reading], goal: Dict) -> Dict:
         sorted_r = sorted(readings, key=lambda r: r.date)
         recent_30 = sorted_r[-30:]
@@ -28,21 +62,26 @@ class ConservationManager:
         before_r = [r for r in sorted_r if r.date < action_start]
         after_r = [r for r in sorted_r if r.date >= action_start]
 
+        has_readings = len(sorted_r) > 0
         before_avg = (
-            round(sum(r.volume_liters for r in before_r) / len(before_r), 1)
+            0.0
+            if not has_readings
+            else round(sum(r.volume_liters for r in before_r) / len(before_r), 1)
             if before_r
             else baseline_daily
         )
         after_avg = (
-            round(sum(r.volume_liters for r in after_r) / len(after_r), 1)
+            0.0
+            if not has_readings
+            else round(sum(r.volume_liters for r in after_r) / len(after_r), 1)
             if after_r
             else current_avg
         )
 
-        daily_savings = round(before_avg - after_avg, 1)
-        active_days = max(len(after_r), len(recent_30))
-        total_saved = round(max(0.0, daily_savings * active_days), 1)
-        savings_pct = round((daily_savings / before_avg) * 100.0, 1) if before_avg > 0 else 0.0
+        daily_savings = round(before_avg - after_avg, 1) if has_readings else 0.0
+        active_days = max(len(after_r), len(recent_30)) if has_readings else 0
+        total_saved = round(max(0.0, daily_savings * active_days), 1) if has_readings else 0.0
+        savings_pct = round((daily_savings / before_avg) * 100.0, 1) if (has_readings and before_avg > 0) else 0.0
 
         status_label = "On Track"
         if utilization_pct > 100 or current_avg > daily_target * 1.15:

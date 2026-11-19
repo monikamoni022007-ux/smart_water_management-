@@ -1,9 +1,14 @@
-import { useMemo } from 'react';
-import { ArrowRight, Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ArrowRight, Check, Droplets } from 'lucide-react';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { RiskIndicator } from '../components/RiskIndicator';
 import { PageId } from '../components/Sidebar';
 import { WorkspacePayload } from '../types/api';
+import {
+  formatAlertHeadline,
+  formatAlertSummary,
+  formatHouseholdStatus,
+} from '../utils/plainLanguage';
 
 interface DashboardPageProps {
   workspace: WorkspacePayload;
@@ -18,414 +23,297 @@ export function DashboardPage({
   onAcknowledgeAlert,
   onLoadDemo,
 }: DashboardPageProps) {
-  const { summary, forecast, leakAnalysis, conservation, alerts, weekly, monthly, readings } = workspace;
+  const { summary, forecast, leakAnalysis, conservation, alerts, readings } = workspace;
+  const [loadingDemo, setLoadingDemo] = useState(false);
+  const [pendingAlertId, setPendingAlertId] = useState<number | null>(null);
 
   const recent30 = useMemo(() => forecast.historical.slice(-30), [forecast.historical]);
-  const lastActual = recent30[recent30.length - 1];
-  const actualVsPredDiff = lastActual
-    ? Number((lastActual.actualLiters - lastActual.predictedLiters).toFixed(1))
-    : 0;
+  const activeAlerts = useMemo(
+    () => alerts.filter((a) => a.status === 'Active'),
+    [alerts]
+  );
 
-  const actualVsPredictedChartData = useMemo(
+  const statusText = formatHouseholdStatus(
+    leakAnalysis.overallRiskLevel,
+    leakAnalysis.activeAlertsCount
+  );
+
+  const todayDiff = Math.round(summary.todayLiters - conservation.goal.dailyTargetLiters);
+  const monthlyUsed = Math.round(conservation.recentThirtyDayTotalLiters);
+  const monthlyDiff = Math.round(conservation.goal.monthlyLimitLiters - monthlyUsed);
+
+  const usageChartData = useMemo(
     () => ({
       labels: recent30.map((p) => p.date.slice(5)),
       datasets: [
         {
-          label: 'Actual Usage (L)',
+          label: 'Water Used (L)',
           data: recent30.map((p) => p.actualLiters),
           borderColor: '#0284C7',
           backgroundColor: 'rgba(2, 132, 199, 0.08)',
           borderWidth: 2,
-          pointRadius: 2.5,
-          tension: 0.2,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: '#0284C7',
+          pointHoverBorderColor: '#FFFFFF',
+          pointHoverBorderWidth: 2,
+          tension: 0.28,
           fill: true,
         },
         {
-          label: 'Predicted Baseline (L)',
-          data: recent30.map((p) => p.predictedLiters),
+          label: `Daily Goal (${conservation.goal.dailyTargetLiters} L)`,
+          data: recent30.map(() => conservation.goal.dailyTargetLiters),
           borderColor: '#0F766E',
-          borderDash: [5, 4],
-          borderWidth: 2,
+          borderDash: [5, 5],
+          borderWidth: 1.5,
           pointRadius: 0,
-          tension: 0.2,
+          pointHoverRadius: 0,
           fill: false,
         },
       ],
     }),
-    [recent30]
+    [recent30, conservation.goal.dailyTargetLiters]
   );
 
-  const weeklyChartData = useMemo(() => {
-    const slice = weekly.slice(-8);
-    return {
-      labels: slice.map((w) => w.period),
-      datasets: [
-        {
-          label: 'Weekly Total (L)',
-          data: slice.map((w) => w.totalLiters),
-          backgroundColor: '#0F766E',
-          borderRadius: 4,
-        },
-      ],
-    };
-  }, [weekly]);
-
-  const monthlyChartData = useMemo(
+  const usageChartOptions = useMemo(
     () => ({
-      labels: monthly.map((m) => m.label),
-      datasets: [
-        {
-          label: 'Monthly Total (L)',
-          data: monthly.map((m) => m.totalLiters),
-          backgroundColor: '#0284C7',
-          borderRadius: 4,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+          align: 'end' as const,
         },
-      ],
+        tooltip: {
+          callbacks: {
+            label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
+              `${ctx.dataset.label ?? 'Usage'}: ${Math.round(ctx.parsed.y ?? 0).toLocaleString()} L`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          border: { display: false },
+          grid: { color: '#EEF2F6' },
+          ticks: {
+            color: '#64748B',
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+            callback: (value: string | number) => `${value} L`,
+          },
+        },
+        x: {
+          border: { display: false },
+          grid: { display: false },
+          ticks: {
+            color: '#64748B',
+            maxTicksLimit: 8,
+            font: { family: '"IBM Plex Mono", monospace', size: 11 },
+          },
+        },
+      },
     }),
-    [monthly]
+    []
   );
 
   if (readings.length === 0) {
     return (
-      <div className="bg-white border border-slate-200 rounded-lg p-8 text-center max-w-2xl mx-auto mt-6">
-        <h2 className="font-display text-xl font-semibold text-[#0F172A]">
-          No Water Meter Readings Recorded Yet
+      <div className="surface-card p-10 text-center max-w-xl mx-auto mt-10">
+        <div className="w-10 h-10 rounded-lg bg-[#F0FDFA] text-[#0F766E] border border-[#CCFBF1] flex items-center justify-center mx-auto mb-4">
+          <Droplets className="w-5 h-5" aria-hidden="true" />
+        </div>
+        <h2 className="font-display text-lg font-semibold text-[#0F172A]">
+          Welcome to Your Home Water Tracker
         </h2>
-        <p className="text-sm text-slate-600 mt-2 max-w-md mx-auto">
-          Start by adding your first simulated meter reading manually, or load the deterministic 92-day sample dataset to test forecasting, leak detection, and conservation tracking.
+        <p className="text-sm text-slate-600 mt-2 leading-relaxed max-w-md mx-auto">
+          You have not added any water readings yet. Log your first daily meter reading or load sample household data to see trends, forecasts, and leak checks.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <button
             type="button"
             onClick={() => onNavigate('monitoring')}
-            className="px-4 py-2 text-sm font-medium text-white bg-[#0F766E] rounded-md hover:bg-[#0D625B]"
+            className="px-4 py-2 text-sm font-medium text-white bg-[#0F766E] rounded-md shadow-xs hover:bg-[#0D625B]"
           >
-            Log First Reading
+            Add First Reading
           </button>
           <button
             type="button"
-            onClick={onLoadDemo}
-            className="px-4 py-2 text-sm font-medium text-[#0F172A] bg-white border border-slate-300 rounded-md hover:bg-slate-50"
+            disabled={loadingDemo}
+            onClick={async () => {
+              if (loadingDemo) return;
+              setLoadingDemo(true);
+              try {
+                await onLoadDemo();
+              } finally {
+                setLoadingDemo(false);
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-[#0F172A] bg-white border border-slate-200 rounded-md shadow-2xs hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50"
           >
-            Load 90-Day Sample Data
+            {loadingDemo ? 'Loading...' : 'Load Sample Data'}
           </button>
         </div>
       </div>
     );
   }
 
-  const recentAlerts = alerts.slice(0, 4);
-
   return (
     <div className="space-y-6">
-      {/* KPI Summary Strip */}
-      <section aria-label="Key water metrics" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Latest Daily Consumption</div>
+      {/* Unified 4-metric KPI Bar */}
+      <section
+        aria-label="Household water summary"
+        className="surface-card grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200/80"
+      >
+        <div className="p-5 sm:p-6">
+          <div className="text-xs font-medium text-slate-500">Today's Water Usage</div>
+          <div className="mt-2 font-mono-tabular text-[26px] leading-tight font-semibold text-[#0F172A] tracking-tight whitespace-nowrap">
+            {summary.todayLiters.toLocaleString()} L
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            {todayDiff <= 0
+              ? `${Math.abs(todayDiff).toLocaleString()} L under ${conservation.goal.dailyTargetLiters.toLocaleString()} L goal`
+              : `${todayDiff.toLocaleString()} L over ${conservation.goal.dailyTargetLiters.toLocaleString()} L goal`}
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-6">
+          <div className="text-xs font-medium text-slate-500">Your Monthly Usage</div>
+          <div className="mt-2 font-mono-tabular text-[26px] leading-tight font-semibold text-[#0F172A] tracking-tight whitespace-nowrap">
+            {monthlyUsed.toLocaleString()} L
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            {monthlyDiff >= 0
+              ? `${monthlyDiff.toLocaleString()} L left of ${conservation.goal.monthlyLimitLiters.toLocaleString()} L limit`
+              : `${Math.abs(monthlyDiff).toLocaleString()} L over ${conservation.goal.monthlyLimitLiters.toLocaleString()} L limit`}
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-6">
+          <div className="text-xs font-medium text-slate-500">Current Water Status</div>
+          <div className="mt-2.5">
+            <RiskIndicator level={leakAnalysis.overallRiskLevel} plain />
+          </div>
+          <div className="mt-2 text-xs text-slate-600 leading-snug">{statusText.headline}</div>
+        </div>
+
+        <div className="p-5 sm:p-6">
+          <div className="text-xs font-medium text-slate-500">Your Water-Saving Goal</div>
           <div className="mt-2 flex items-baseline justify-between gap-2">
-            <span className="font-mono-tabular text-2xl font-semibold text-[#0F172A] whitespace-nowrap">
-              {summary.todayLiters.toLocaleString()} L
+            <span className="font-mono-tabular text-[26px] leading-tight font-semibold text-[#0F766E] tracking-tight whitespace-nowrap">
+              {conservation.targetAdherencePercent}%
             </span>
             <span className="text-xs text-slate-500 font-mono-tabular whitespace-nowrap">
-              {summary.latestDate}
+              {conservation.daysWithinDailyTarget}/{conservation.totalEvaluatedDays} days
             </span>
           </div>
-          <div className="mt-2 text-xs text-slate-600">
-            Daily target: <span className="font-mono-tabular font-medium">{conservation.goal.dailyTargetLiters} L</span>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Average Daily Usage</div>
-          <div className="mt-2 flex items-baseline justify-between gap-2">
-            <span className="font-mono-tabular text-2xl font-semibold text-[#0F172A] whitespace-nowrap">
-              {summary.averageDailyLiters.toLocaleString()} L
-            </span>
-            <span className="text-xs text-slate-500 font-mono-tabular whitespace-nowrap">
-              {summary.totalReadings} days
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-slate-600">
-            Weekday {summary.weekdayAverageLiters} L · Weekend {summary.weekendAverageLiters} L
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Next-Day Predicted Usage</div>
-          <div className="mt-2 flex items-baseline justify-between gap-2">
-            <span className="font-mono-tabular text-2xl font-semibold text-[#0284C7] whitespace-nowrap">
-              {forecast.nextDayPredictedLiters.toLocaleString()} L
-            </span>
-            <span
-              className={`text-xs font-mono-tabular font-medium whitespace-nowrap ${
-                actualVsPredDiff > 0 ? 'text-[#B45309]' : 'text-[#15803D]'
-              }`}
-            >
-              {actualVsPredDiff >= 0 ? '+' : ''}
-              {actualVsPredDiff} L vs pred
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-slate-600 truncate">
-            {forecast.methodName}
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-5">
-          <div className="text-xs font-medium text-slate-500">Leak Risk & Goal Progress</div>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <RiskIndicator level={leakAnalysis.overallRiskLevel} />
-            <span className="font-mono-tabular text-sm font-semibold text-[#15803D] whitespace-nowrap">
-              {conservation.targetAdherencePercent}% on target
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-slate-600">
-            {leakAnalysis.activeAlertsCount} active alert{leakAnalysis.activeAlertsCount === 1 ? '' : 's'} ·{' '}
-            {conservation.estimatedDailySavingsLiters >= 0
-              ? `${conservation.estimatedDailySavingsLiters} L/day saved`
-              : `${Math.abs(conservation.estimatedDailySavingsLiters)} L/day over baseline`}
+          <div className="mt-2.5 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#0F766E] rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(100, conservation.targetAdherencePercent)}%` }}
+            />
           </div>
         </div>
       </section>
 
-      {/* Primary Chart: Actual vs Predicted */}
-      <section className="bg-white border border-slate-200 rounded-lg p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+      {/* Main Water Usage Trend Visualization */}
+      <section className="surface-card p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
           <div>
             <h2 className="font-display text-base font-semibold text-[#0F172A]">
-              Actual vs Predicted Consumption (Last 30 Days)
+              Water Usage Trends (Last 30 Days)
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Compares recorded meter readings against expected baseline from {forecast.methodName}.
+              Hover over any day to compare your household usage with your {conservation.goal.dailyTargetLiters} L daily goal
             </p>
           </div>
           <button
             type="button"
-            onClick={() => onNavigate('prediction')}
-            className="inline-flex items-center gap-1 text-xs font-medium text-[#0F766E] hover:underline whitespace-nowrap shrink-0"
+            onClick={() => onNavigate('monitoring')}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0F766E] hover:text-[#0D625B] whitespace-nowrap shrink-0 self-start sm:self-auto"
           >
-            <span>Open Full Forecast</span>
+            <span>See All Readings</span>
             <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
+
         <ChartCanvas
           type="line"
-          data={actualVsPredictedChartData}
+          data={usageChartData}
           heightClass="h-72"
-          testId="dashboard-actual-vs-predicted-chart"
-          ariaLabel="Actual versus predicted water consumption over the last 30 days"
-          options={{
-            plugins: {
-              legend: { position: 'top', align: 'end', labels: { boxWidth: 12, usePointStyle: true } },
-            },
-            scales: {
-              y: {
-                beginAtZero: false,
-                title: { display: true, text: 'Volume (Liters)', color: '#64748B', font: { size: 11 } },
-                grid: { color: '#F1F5F9' },
-              },
-              x: { grid: { display: false } },
-            },
-          }}
+          testId="dashboard-usage-chart"
+          ariaLabel="Daily water usage over the last 30 days"
+          options={usageChartOptions}
         />
       </section>
 
-      {/* Weekly & Monthly Charts */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white border border-slate-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-display text-base font-semibold text-[#0F172A]">Weekly Consumption</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Total liters per ISO calendar week</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('monitoring')}
-              className="text-xs font-medium text-[#0F766E] hover:underline whitespace-nowrap"
-            >
-              Manage Readings
-            </button>
-          </div>
-          <ChartCanvas
-            type="bar"
-            data={weeklyChartData}
-            heightClass="h-60"
-            testId="dashboard-weekly-chart"
-            ariaLabel="Weekly water consumption bar chart"
-            options={{
-              plugins: { legend: { display: false } },
-              scales: {
-                y: { beginAtZero: true, grid: { color: '#F1F5F9' } },
-                x: { grid: { display: false } },
-              },
-            }}
-          />
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-display text-base font-semibold text-[#0F172A]">Monthly Consumption</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Monthly limit: <span className="font-mono-tabular">{conservation.goal.monthlyLimitLiters.toLocaleString()} L</span>
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('reports')}
-              className="text-xs font-medium text-[#0F766E] hover:underline whitespace-nowrap"
-            >
-              View Reports
-            </button>
-          </div>
-          <ChartCanvas
-            type="bar"
-            data={monthlyChartData}
-            heightClass="h-60"
-            testId="dashboard-monthly-chart"
-            ariaLabel="Monthly water consumption bar chart"
-            options={{
-              plugins: { legend: { display: false } },
-              scales: {
-                y: { beginAtZero: true, grid: { color: '#F1F5F9' } },
-                x: { grid: { display: false } },
-              },
-            }}
-          />
-        </div>
-      </section>
-
-      {/* Bottom Split: Conservation Progress & Recent Alerts */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-base font-semibold text-[#0F172A]">
-                Conservation Goal Progress
-              </h2>
-              <span
-                className={`text-xs font-semibold ${
-                  conservation.statusLabel === 'On Track'
-                    ? 'text-[#15803D]'
-                    : conservation.statusLabel === 'Needs Attention'
-                    ? 'text-[#B45309]'
-                    : 'text-[#DC2626]'
-                }`}
-              >
-                {conservation.statusLabel}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">{conservation.goal.actionLabel}</p>
-
-            <div className="mt-5">
-              <div className="flex items-center justify-between text-xs mb-1.5">
-                <span className="text-slate-600">30-Day Monthly Limit Utilization</span>
-                <span className="font-mono-tabular font-semibold text-[#0F172A]">
-                  {conservation.recentThirtyDayTotalLiters.toLocaleString()} /{' '}
-                  {conservation.goal.monthlyLimitLiters.toLocaleString()} L ({conservation.monthlyLimitUtilizationPercent}%)
-                </span>
-              </div>
-              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${
-                    conservation.monthlyLimitUtilizationPercent > 100
-                      ? 'bg-[#DC2626]'
-                      : conservation.monthlyLimitUtilizationPercent > 85
-                      ? 'bg-[#D97706]'
-                      : 'bg-[#16A34A]'
-                  }`}
-                  style={{ width: `${Math.min(100, conservation.monthlyLimitUtilizationPercent)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-              <div>
-                <div className="text-xs text-slate-500">Before Action Avg</div>
-                <div className="font-mono-tabular text-lg font-semibold text-[#0F172A] mt-0.5">
-                  {conservation.beforeAvgLiters} L/d
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">After Action Avg</div>
-                <div className="font-mono-tabular text-lg font-semibold text-[#15803D] mt-0.5">
-                  {conservation.afterAvgLiters} L/d
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onNavigate('conservation')}
-            className="mt-5 inline-flex items-center gap-1 text-xs font-medium text-[#0F766E] hover:underline self-start"
-          >
-            <span>Manage Targets & Recommendations</span>
-            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
+      {/* Important Leak Alerts (only shown when active alerts exist) */}
+      {activeAlerts.length > 0 && (
+        <section className="surface-card overflow-hidden">
+          <div className="px-5 sm:px-6 py-4 border-b border-slate-200/80 flex items-center justify-between gap-4">
             <div>
               <h2 className="font-display text-base font-semibold text-[#0F172A]">
-                Recent Suspected Leak Alerts
+                Possible Leak Detected ({activeAlerts.length})
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Software-simulated anomaly detection (never claims physical confirmation)
+                Days where water use looked unusually high or kept running overnight
               </p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('leaks')}
-              className="text-xs font-medium text-[#0F766E] hover:underline whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#0F766E] hover:text-[#0D625B] whitespace-nowrap shrink-0"
             >
-              View All ({alerts.length})
+              <span>Review All</span>
+              <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
 
-          {recentAlerts.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-500">
-              No possible leak patterns detected across current readings.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {recentAlerts.map((alert) => (
-                <div key={alert.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <RiskIndicator level={alert.riskLevel} />
-                      <span className="text-xs text-slate-400">·</span>
-                      <span className="font-mono-tabular text-xs font-medium text-[#0F172A]">{alert.date}</span>
-                      <span className="text-xs text-slate-400">·</span>
-                      <span className="text-xs text-slate-600">{alert.ruleTriggered}</span>
-                    </div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      Actual <span className="font-mono-tabular font-semibold">{alert.actualLiters} L</span> vs expected{' '}
-                      <span className="font-mono-tabular">{alert.expectedLiters} L</span> · Night flow{' '}
-                      <span className="font-mono-tabular">{alert.nightFlowLph} L/h</span>
-                    </div>
+          <div className="divide-y divide-slate-100">
+            {activeAlerts.slice(0, 3).map((alert) => (
+              <div
+                key={alert.id}
+                className="px-5 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors"
+              >
+                <div className="space-y-1.5 max-w-2xl">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <RiskIndicator level={alert.riskLevel} plain />
+                    <span className="text-xs text-slate-300" aria-hidden="true">·</span>
+                    <span className="font-mono-tabular text-xs text-slate-500">{alert.date}</span>
+                    <span className="text-xs text-slate-300" aria-hidden="true">·</span>
+                    <span className="text-sm font-medium text-[#0F172A]">
+                      {formatAlertHeadline(alert)}
+                    </span>
                   </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-slate-500">{alert.status}</span>
-                    {alert.status === 'Active' && (
-                      <button
-                        type="button"
-                        onClick={() => onAcknowledgeAlert(alert.id)}
-                        aria-label={`Acknowledge alert on ${alert.date}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#0F172A] bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 whitespace-nowrap"
-                      >
-                        <Check className="w-3 h-3" aria-hidden="true" />
-                        <span>Acknowledge</span>
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {formatAlertSummary(alert)}
+                  </p>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    <span className="font-semibold text-[#0F172A]">What to do:</span>{' '}
+                    {alert.recommendedAction}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+
+                <button
+                  type="button"
+                  disabled={pendingAlertId === alert.id}
+                  onClick={async () => {
+                    if (pendingAlertId === alert.id) return;
+                    setPendingAlertId(alert.id);
+                    try {
+                      await onAcknowledgeAlert(alert.id);
+                    } finally {
+                      setPendingAlertId(null);
+                    }
+                  }}
+                  aria-label={`Mark alert on ${alert.date} as checked`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md shadow-2xs hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 whitespace-nowrap shrink-0 self-start sm:self-center"
+                >
+                  <Check className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                  <span>{pendingAlertId === alert.id ? 'Updating...' : 'Mark as Checked'}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

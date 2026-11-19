@@ -46,6 +46,39 @@ test('WaterDatabase enforces per-user isolation and persists CRUD + alert status
     // Priya can delete her reading
     assert.equal(db.deleteReading(priya.id, created.id), true);
     assert.equal(db.getReadingsForUser(priya.id).length, 14);
+
+    // Add persistent manual reading, update goal & strategy, and reopen WaterDatabase to verify persistence across restarts
+    const saved = db.addReading(priya.id, {
+      date: '2026-11-20',
+      volumeLiters: 510,
+      nightFlowLph: 16.5,
+      notes: 'Persisted check',
+      source: 'manual',
+    });
+    db.updateUserSettings(priya.id, { forecastStrategy: 'moving_average', forecastHorizonDays: 7 });
+    db.updateUserSettings(priya.id, {
+      forecastStrategy: undefined,
+      spikePercentThreshold: 35,
+      highRiskPercentThreshold: 70,
+    });
+    db.updateConservationGoal(priya.id, {
+      userId: priya.id,
+      dailyTargetLiters: 205,
+      monthlyLimitLiters: 6150,
+      baselineDailyLiters: 230,
+      actionStartDate: '2026-11-01',
+      actionLabel: 'Replaced leaking tap washer',
+    });
+
+    const reopened = new WaterDatabase(tmpFile);
+    const wsAfterRestart = reopened.getWorkspacePayload(priya.id);
+    assert.equal(wsAfterRestart.readings.length, 15);
+    assert.equal(wsAfterRestart.readings[wsAfterRestart.readings.length - 1].id, saved.id);
+    assert.equal(wsAfterRestart.settings.forecastStrategy, 'moving_average');
+    assert.equal(wsAfterRestart.settings.forecastHorizonDays, 7);
+    assert.equal(wsAfterRestart.settings.spikePercentThreshold, 35);
+    assert.equal(wsAfterRestart.conservation.goal.dailyTargetLiters, 205);
+    assert.ok(wsAfterRestart.alerts.some((a) => a.date === '2026-11-20'));
   } finally {
     if (fs.existsSync(tmpFile)) {
       fs.unlinkSync(tmpFile);

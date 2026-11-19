@@ -1,27 +1,28 @@
 {% extends "base.html" %}
-{% block page_title %}Conservation Management{% endblock %}
+{% block page_title %}Water Conservation{% endblock %}
 {% block content %}
-<div class="grid-4">
-  <div class="card"><div class="kpi-label">Daily Savings</div><div class="kpi-value mono" style="color:#15803d">{{ ws.conservation.estimated_daily_savings_liters }} L/d</div></div>
-  <div class="card"><div class="kpi-label">Total Saved</div><div class="kpi-value mono" style="color:#15803d">{{ ws.conservation.estimated_total_saved_liters }} L</div></div>
-  <div class="card"><div class="kpi-label">Days Within Target</div><div class="kpi-value mono">{{ ws.conservation.days_within_daily_target }} / {{ ws.conservation.total_evaluated_days }}</div></div>
-  <div class="card"><div class="kpi-label">Monthly Limit Remaining</div><div class="kpi-value mono">{{ ws.conservation.monthly_limit_remaining_liters }} L</div></div>
+<div id="cons-status" style="display:none"></div>
+
+<div class="grid-4" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
+  <div class="card"><div class="kpi-label">Water Saved Per Day</div><div id="cons-daily-savings" class="kpi-value mono" style="color:#15803d">{{ ws.conservation.estimated_daily_savings_liters }} L/day</div></div>
+  <div class="card"><div class="kpi-label">Estimated Total Saved</div><div id="cons-total-saved" class="kpi-value mono" style="color:#15803d">{{ ws.conservation.estimated_total_saved_liters }} L</div></div>
+  <div class="card"><div class="kpi-label">Monthly Budget Remaining</div><div id="cons-monthly-rem" class="kpi-value mono">{{ ws.conservation.monthly_limit_remaining_liters }} L</div></div>
 </div>
 
 <div class="grid-2">
   <div class="card">
-    <h2 style="font-size:16px;margin-bottom:12px">Set Conservation Targets</h2>
-    <form method="post" style="display:grid;gap:12px">
+    <h2 style="font-size:16px;margin-bottom:12px">Your Water-Saving Goals</h2>
+    <form id="cons-goal-form" novalidate style="display:grid;gap:12px">
       <div class="grid-2">
-        <div><label class="kpi-label">Daily Target (L)</label><input type="number" name="daily_target_liters" value="{{ ws.conservation.goal.daily_target_liters }}" required /></div>
+        <div><label class="kpi-label">Daily Goal (L)</label><input type="number" name="daily_target_liters" value="{{ ws.conservation.goal.daily_target_liters }}" required /></div>
         <div><label class="kpi-label">Monthly Limit (L)</label><input type="number" name="monthly_limit_liters" value="{{ ws.conservation.goal.monthly_limit_liters }}" required /></div>
       </div>
       <div class="grid-2">
-        <div><label class="kpi-label">Baseline Daily (L)</label><input type="number" name="baseline_daily_liters" value="{{ ws.conservation.goal.baseline_daily_liters }}" required /></div>
-        <div><label class="kpi-label">Action Start Date</label><input type="date" name="action_start_date" value="{{ ws.conservation.goal.action_start_date }}" required /></div>
+        <div><label class="kpi-label">Previous Avg (L/day)</label><input type="number" name="baseline_daily_liters" value="{{ ws.conservation.goal.baseline_daily_liters }}" required /></div>
+        <div><label class="kpi-label">Started On</label><input type="date" name="action_start_date" value="{{ ws.conservation.goal.action_start_date }}" required /></div>
       </div>
-      <div><label class="kpi-label">Action Description</label><input type="text" name="action_label" value="{{ ws.conservation.goal.action_label }}" required /></div>
-      <button type="submit" class="btn btn-primary" style="justify-self:start">Save Goals</button>
+      <div><label class="kpi-label">What change did you make?</label><input type="text" name="action_label" value="{{ ws.conservation.goal.action_label }}" required /></div>
+      <button type="submit" id="cons-save-btn" class="btn btn-primary" style="justify-self:start">Save Goals</button>
     </form>
   </div>
 
@@ -32,10 +33,10 @@
 </div>
 
 <div class="card">
-  <h2 style="font-size:16px;margin-bottom:12px">Personalized Recommendations</h2>
+  <h2 style="font-size:16px;margin-bottom:12px">Practical Ways to Save Water</h2>
   {% for rec in ws.conservation.recommendations %}
     <div style="padding:10px 0;border-bottom:1px solid #f1f5f9">
-      <div style="font-size:12px;color:#0f766e">{{ rec.category }} · Est. {{ rec.estimated_daily_savings_liters }} L/day</div>
+      <div style="font-size:12px;color:#0f766e">Save ~{{ rec.estimated_daily_savings_liters }} L/day</div>
       <div style="font-weight:600;margin-top:2px">{{ rec.title }}</div>
       <div style="font-size:13px;color:#475569;margin-top:2px">{{ rec.rationale }}</div>
     </div>
@@ -45,7 +46,7 @@
 
 {% block scripts %}
 <script>
-  renderBarChart("consChart", ["Before Action", "After Action", "Daily Target"], [{
+  renderBarChart("consChart", ["Before Change", "After Change", "Daily Goal"], [{
     label: "Liters / day",
     data: [{{ ws.conservation.before_avg_liters }}, {{ ws.conservation.after_avg_liters }}, {{ ws.conservation.goal.daily_target_liters }}],
     backgroundColor: ["#64748b", "#16a34a", "#0284c7"]

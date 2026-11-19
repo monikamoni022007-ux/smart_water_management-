@@ -69,19 +69,19 @@ export function AccountModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="account-modal-title"
     >
-      <div className="bg-white border border-slate-200 rounded-lg w-full max-w-lg p-6">
+      <div className="surface-card w-full max-w-lg p-6 shadow-xl">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200">
           <div>
             <h2 id="account-modal-title" className="font-display text-lg font-semibold text-[#0F172A]">
-              Account & Household Isolation
+              Household Accounts
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Each user accesses only their own water readings, alerts, and goals in SQLite.
+              Each household keeps its own private water readings, alerts, and goals.
             </p>
           </div>
           <button
@@ -196,7 +196,7 @@ export function AccountModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="alex@aqualedger.edu"
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                className="field-input"
               />
             </div>
             <div>
@@ -210,7 +210,7 @@ export function AccountModal({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="demo123"
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                className="field-input"
               />
             </div>
             <div className="pt-2 flex justify-end gap-2">
@@ -246,7 +246,7 @@ export function AccountModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Jordan Lee"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                  className="field-input"
                 />
               </div>
               <div>
@@ -261,7 +261,7 @@ export function AccountModal({
                   required
                   value={householdSize}
                   onChange={(e) => setHouseholdSize(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                  className="field-input"
                 />
               </div>
             </div>
@@ -276,7 +276,7 @@ export function AccountModal({
                 value={householdName}
                 onChange={(e) => setHouseholdName(e.target.value)}
                 placeholder="Lee Residence"
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                className="field-input"
               />
             </div>
             <div>
@@ -290,7 +290,7 @@ export function AccountModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="jordan@example.edu"
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                className="field-input"
               />
             </div>
             <div>
@@ -304,7 +304,7 @@ export function AccountModal({
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:border-[#0F766E]"
+                className="field-input"
               />
             </div>
             <div className="pt-2 flex justify-end gap-2">

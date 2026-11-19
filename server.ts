@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
-import { WaterDatabase } from './src/db/database';
+import { UserSettings, WaterDatabase } from './src/db/database';
 import { AlertStatus } from './src/ooad/Alert';
 import { ForecastMethodKey } from './src/ooad/Forecaster';
 
@@ -107,6 +107,102 @@ async function startServer() {
     res.json(payload);
   });
 
+  // Per-module REST endpoints backed by SQLite & OOAD services
+  app.get('/api/dashboard', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const ws = db.getWorkspacePayload(userId);
+    res.json({
+      user: ws.user,
+      meterId: ws.meterId,
+      summary: ws.summary,
+      recentChart: ws.forecast.historical.slice(-30),
+      leakAnalysis: ws.leakAnalysis,
+      activeAlerts: ws.alerts.filter((a) => a.status === 'Active'),
+      conservation: ws.conservation,
+    });
+  });
+
+  app.get('/api/readings', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const start = typeof req.query.start === 'string' ? req.query.start : '';
+    const end = typeof req.query.end === 'string' ? req.query.end : '';
+    const source = typeof req.query.source === 'string' ? req.query.source : 'all';
+
+    const readings = db
+      .getReadingsForUser(userId)
+      .filter((r) => {
+        if (start && r.date < start) return false;
+        if (end && r.date > end) return false;
+        if (source !== 'all' && r.source !== source) return false;
+        return true;
+      })
+      .map((r) => r.toJSON());
+
+    res.json({ readings });
+  });
+
+  app.get('/api/prediction', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const strategyParam = req.query.strategy as ForecastMethodKey | undefined;
+    const horizonParam = req.query.horizon ? Number(req.query.horizon) : undefined;
+    const validStrategy =
+      strategyParam === 'linear_regression' || strategyParam === 'moving_average'
+        ? strategyParam
+        : undefined;
+    const ws = db.getWorkspacePayload(userId, validStrategy, horizonParam);
+    res.json({ settings: ws.settings, forecast: ws.forecast });
+  });
+
+  app.get('/api/leaks', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const ws = db.getWorkspacePayload(userId);
+    res.json({
+      settings: ws.settings,
+      leakAnalysis: ws.leakAnalysis,
+      alerts: ws.alerts,
+    });
+  });
+
+  app.get('/api/conservation', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const ws = db.getWorkspacePayload(userId);
+    res.json({ conservation: ws.conservation });
+  });
+
+  app.get('/api/reports/:type', (req, res) => {
+    const userId = requireUserId(req, res);
+    if (!userId) return;
+    const ws = db.getWorkspacePayload(userId);
+    const reportType = req.params.type;
+    switch (reportType) {
+      case 'daily':
+        res.json({ type: 'daily', rows: ws.readings });
+        return;
+      case 'weekly':
+        res.json({ type: 'weekly', rows: ws.weekly });
+        return;
+      case 'monthly':
+        res.json({ type: 'monthly', rows: ws.monthly });
+        return;
+      case 'forecast':
+        res.json({ type: 'forecast', rows: ws.forecast.historical });
+        return;
+      case 'leaks':
+        res.json({ type: 'leaks', rows: ws.alerts });
+        return;
+      case 'conservation':
+        res.json({ type: 'conservation', data: ws.conservation });
+        return;
+      default:
+        res.status(400).json({ error: 'Unknown report type.' });
+    }
+  });
+
   // Readings CRUD (strictly scoped to userId)
   app.post('/api/readings', (req, res) => {
     const userId = requireUserId(req, res);
@@ -155,6 +251,10 @@ async function startServer() {
     if (!userId) return;
 
     const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: 'Invalid reading ID.' });
+      return;
+    }
     const deleted = db.deleteReading(userId, id);
     if (!deleted) {
       res.status(404).json({ error: 'Reading not found.' });
@@ -192,9 +292,14 @@ async function startServer() {
     const zThresh = Number(body.historicalZThreshold);
     const horizon = Number(body.forecastHorizonDays);
 
+    const currentSettings = db.getUserSettings(userId);
+    const effectiveSpike = body.spikePercentThreshold !== undefined ? spike : currentSettings.spikePercentThreshold;
+    const effectiveHigh = body.highRiskPercentThreshold !== undefined ? highRisk : currentSettings.highRiskPercentThreshold;
+
     if (
       (body.spikePercentThreshold !== undefined && (Number.isNaN(spike) || spike < 5 || spike > 300)) ||
       (body.highRiskPercentThreshold !== undefined && (Number.isNaN(highRisk) || highRisk < 10 || highRisk > 500)) ||
+      effectiveHigh <= effectiveSpike ||
       (body.nightFlowThresholdLph !== undefined && (Number.isNaN(nightFlow) || nightFlow < 1 || nightFlow > 500)) ||
       (body.consecutiveAbnormalDays !== undefined && (Number.isNaN(consecutive) || consecutive < 1 || consecutive > 14)) ||
       (body.historicalZThreshold !== undefined && (Number.isNaN(zThresh) || zThresh < 1 || zThresh > 6)) ||
@@ -204,18 +309,18 @@ async function startServer() {
       return;
     }
 
-    const updated = db.updateUserSettings(userId, {
-      forecastStrategy:
-        body.forecastStrategy === 'moving_average' || body.forecastStrategy === 'linear_regression'
-          ? body.forecastStrategy
-          : undefined,
-      forecastHorizonDays: body.forecastHorizonDays !== undefined ? Math.round(horizon) : undefined,
-      spikePercentThreshold: body.spikePercentThreshold !== undefined ? spike : undefined,
-      highRiskPercentThreshold: body.highRiskPercentThreshold !== undefined ? highRisk : undefined,
-      nightFlowThresholdLph: body.nightFlowThresholdLph !== undefined ? nightFlow : undefined,
-      consecutiveAbnormalDays: body.consecutiveAbnormalDays !== undefined ? Math.round(consecutive) : undefined,
-      historicalZThreshold: body.historicalZThreshold !== undefined ? zThresh : undefined,
-    });
+    const settingsPatch: Partial<UserSettings> = {};
+    if (body.forecastStrategy === 'moving_average' || body.forecastStrategy === 'linear_regression') {
+      settingsPatch.forecastStrategy = body.forecastStrategy;
+    }
+    if (body.forecastHorizonDays !== undefined) settingsPatch.forecastHorizonDays = Math.round(horizon);
+    if (body.spikePercentThreshold !== undefined) settingsPatch.spikePercentThreshold = spike;
+    if (body.highRiskPercentThreshold !== undefined) settingsPatch.highRiskPercentThreshold = highRisk;
+    if (body.nightFlowThresholdLph !== undefined) settingsPatch.nightFlowThresholdLph = nightFlow;
+    if (body.consecutiveAbnormalDays !== undefined) settingsPatch.consecutiveAbnormalDays = Math.round(consecutive);
+    if (body.historicalZThreshold !== undefined) settingsPatch.historicalZThreshold = zThresh;
+
+    const updated = db.updateUserSettings(userId, settingsPatch);
     res.json({ settings: updated });
   });
 
@@ -225,6 +330,10 @@ async function startServer() {
     if (!userId) return;
 
     const alertId = Number(req.params.id);
+    if (!Number.isInteger(alertId) || alertId <= 0) {
+      res.status(400).json({ error: 'Invalid alert ID.' });
+      return;
+    }
     const status = req.body?.status as AlertStatus;
     if (status !== 'Active' && status !== 'Acknowledged' && status !== 'Resolved') {
       res.status(400).json({ error: 'Invalid alert status.' });
